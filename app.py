@@ -478,7 +478,7 @@ with col2:
             stop_recording()
 
     st.markdown("#### Or record a single message:")
-    audio_bytes = st.session_state.audio_data = st.session_state.audio_data = ast.audio_recorder(
+    audio_bytes = ast.audio_recorder(
         text="",
         recording_color="#e53935",
         neutral_color="#2E5BFF",
