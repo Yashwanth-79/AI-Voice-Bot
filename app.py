@@ -1,15 +1,14 @@
 import os
 import tempfile
 import streamlit as st
+import base64
 from gtts import gTTS
 from datetime import datetime
 from groq import Groq
 import audio_recorder_streamlit as ast
-import base64
 
 # ------------------ PAGE CONFIGURATION ------------------
-st.set_page_config(page_title="AI Voice Assistant", page_icon="🎙️", layout="wide")
-
+st.set_page_config(page_title="AI Voice Assistant", page_icon="🎙️")
 
 # ------------------ CUSTOM CSS ------------------
 st.markdown("""
@@ -153,7 +152,8 @@ if 'language' not in st.session_state:
     st.session_state.language = "en"
 if 'audio_data' not in st.session_state:
     st.session_state.audio_data = None
-
+if 'audio_to_autoplay' not in st.session_state:
+    st.session_state.audio_to_autoplay = None
 
 # ------------------ LANGUAGE OPTIONS ------------------
 languages = {
@@ -170,6 +170,16 @@ languages = {
 # ------------------ FUNCTIONS ------------------
 def init_groq_client(api_key):
     return Groq(api_key=api_key)
+
+def autoplay_audio(audio_bytes):
+    """Function to auto-play audio using HTML audio tag with autoplay attribute"""
+    b64 = base64.b64encode(audio_bytes).decode()
+    md = f"""
+        <audio controls autoplay="true">
+        <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+        </audio>
+        """
+    st.markdown(md, unsafe_allow_html=True)
 
 def transcribe_with_groq(audio_path, api_key, language="en"):
     try:
@@ -197,7 +207,7 @@ def get_llama_response(question, api_key, language="en"):
             - **Insightful**: Offer thoughtful and relevant responses.
             - **Expressive**: Adapt tone to match the context of the question.
             You will be asked general and reflective questions: Answer such questions politefully
-            Always respond in a way that is clear,as the question is necessary, engaging, and easy to understand when spoken aloud.
+            Always respond in a way that is clear, as the question is necessary, engaging, and easy to understand when spoken aloud.
             """
 
         messages = [{"role": "system", "content": system_prompt},
@@ -223,24 +233,13 @@ def text_to_speech(text, language="en"):
             with open(tmp_file.name, "rb") as f:
                 audio_bytes = f.read()
         os.remove(tmp_file.name)
-        return audio_bytes, tmp_file.name  # Return filename too
+        return audio_bytes
     except Exception as e:
         st.error(f"Error in text-to-speech: {str(e)}")
-        return None, None
-
-def autoplay_audio(audio_bytes):
-    """Autoplays audio using HTML."""
-    b64 = base64.b64encode(audio_bytes).decode()
-    md = f"""
-        <audio controls autoplay="true">
-        <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
-        </audio>
-        """
-    st.markdown(md, unsafe_allow_html=True)
-
+        return None
 
 def process_audio(audio_bytes, api_key):
-    """Processes audio, gets AI response, generates audio."""
+    """Processes audio, gets AI response, generates audio response."""
     if not audio_bytes:
         return None, None, None
 
@@ -255,13 +254,13 @@ def process_audio(audio_bytes, api_key):
             return None, None, None
 
         response = get_llama_response(transcription, api_key, st.session_state.language)
-        audio_response, audio_response_path = text_to_speech(response, st.session_state.language) # Get path
+        audio_response = text_to_speech(response, st.session_state.language)
 
-        return transcription, response, audio_response, audio_response_path
+        return transcription, response, audio_response
 
     except Exception as e:
         st.error(f"Error processing audio: {e}")
-        return None, None, None, None
+        return None, None, None
     finally:
         os.remove(audio_file)
 
@@ -269,9 +268,6 @@ def process_audio(audio_bytes, api_key):
 
 # Header with Logo
 st.markdown("<div class='logo-container'><img src='https://s3-eu-west-1.amazonaws.com/tpd/logos/60d3a0bc65022800013b18b3/0x0.png'><h1>AI Voice Assistant</h1></div>", unsafe_allow_html=True)
-st.markdown("<h1 class='main-header'>Live AI Voice Bot</h1>", unsafe_allow_html=True)
-
-st.markdown("<p class='sub-header'>Record a message, and the AI will respond.</p>", unsafe_allow_html=True)
 
 # Main content area (using columns for layout)
 col1, col2 = st.columns([3, 1])  # Adjust column widths as needed
@@ -289,7 +285,7 @@ with col1:
 with col2:
     st.subheader("Controls")
     api_key = st.text_input("Groq API Key", type="password")
-    st.link_button(label = "Get API Here",url ="https://console.groq.com/playground")
+    st.link_button(label = "Get API Here", url ="https://console.groq.com/playground")
     language_options = [f"{data['flag']} {name}" for name, data in languages.items()]
     selected_language = st.selectbox("Select Language", language_options, index=0)
     selected_language_name = selected_language.split(" ", 1)[1]
@@ -305,22 +301,28 @@ with col2:
     if audio_bytes and st.session_state.audio_data != audio_bytes:
         st.session_state.audio_data = audio_bytes
         with st.spinner("Processing your message..."):
-            transcription, response, audio_response, audio_response_path = process_audio(audio_bytes, api_key)
+            transcription, response, audio_response = process_audio(audio_bytes, api_key)
             if transcription and response and audio_response:
                 st.session_state.conversation.append({
                     "user": transcription,
                     "assistant": response,
-                    "audio_response": audio_response  # Store for potential later use (or display)
+                    "audio_response": audio_response
                 })
-                autoplay_audio(audio_response) # Play the audio!
-
+                st.session_state.audio_to_autoplay = audio_response
         st.rerun()
 
     if st.button("🔄 Clear Conversation"):
         st.session_state.conversation = []
         st.session_state.audio_data = None
+        st.session_state.audio_to_autoplay = None
         st.rerun()
 
+# Auto-play audio if available
+if st.session_state.audio_to_autoplay:
+    autoplay_audio(st.session_state.audio_to_autoplay)
+    # Also provide a regular audio player as fallback
+    st.audio(st.session_state.audio_to_autoplay, format="audio/mp3")
+    st.session_state.audio_to_autoplay = None  # Reset after playing
 
 # Footer
 st.markdown("<div class='footer'>© 2024 Home.LLC | <a href='https://www.home.llc/'>Visit our website</a></div>", unsafe_allow_html=True)
