@@ -1,4 +1,3 @@
-
 import os
 import time
 import tempfile
@@ -8,11 +7,6 @@ from gtts import gTTS
 from datetime import datetime
 from groq import Groq
 from playsound import playsound
-import threading
-import queue
-import pyaudio
-import wave
-import base64
 
 # ------------------ PAGE CONFIGURATION ------------------
 st.set_page_config(
@@ -112,13 +106,6 @@ if 'is_processing' not in st.session_state:
     st.session_state.is_processing = False
 if 'language' not in st.session_state:
     st.session_state.language = "en"
-if "audio_queue" not in st.session_state:
-    st.session_state.audio_queue = queue.Queue()
-if "stop_recording_flag" not in st.session_state:
-    st.session_state.stop_recording_flag = False
-if "recording_thread" not in st.session_state:
-    st.session_state.recording_thread = None
-
 
 # ------------------ LANGUAGE OPTIONS ------------------
 languages = {
@@ -222,111 +209,49 @@ def text_to_speech(text, language="en"):
         st.error(f"Error in text-to-speech: {str(e)}")
         return None
 
-
-def process_audio_chunk(audio_data, api_key, language):
-    """Processes a single chunk of audio data."""
+def process_audio(audio_bytes, api_key):
+    """Process recorded audio through the pipeline"""
+    st.session_state.is_processing = True
+    
     try:
+        # Save audio to file
         with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as tmp_file:
-            tmp_file.write(audio_data)
+            tmp_file.write(audio_bytes)
             audio_file = tmp_file.name
-
-        transcription = transcribe_with_groq(audio_file, api_key, language)
-
-        if transcription:
-            response = get_llama_response(transcription, api_key, language)
-            audio_response = text_to_speech(response, language)
-
-            timestamp = datetime.now().strftime("%H:%M:%S")
-            st.session_state.conversation.append({
-                "user": transcription,
-                "assistant": response,
-                "timestamp": timestamp
-            })
-            if audio_response:
-                st.session_state.audio_queue.put(audio_response)  # Put audio in the queue
-            
+        
+        # Transcribe audio
+        transcription = transcribe_with_groq(audio_file, api_key, st.session_state.language)
+        
+        if not transcription:
+            st.warning("No speech detected or transcription failed")
+            return None, None
+        
+        # Get AI response
+        response = get_llama_response(transcription, api_key, st.session_state.language)
+        
+        # Generate audio response
+        audio_response = text_to_speech(response, st.session_state.language)
+        
+        # Add to conversation with timestamp
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        st.session_state.conversation.append({
+            "user": transcription, 
+            "assistant": response,
+            "timestamp": timestamp
+        })
+        
+        # Clean up audio file
         if os.path.exists(audio_file):
             os.remove(audio_file)
-
+        
+        return transcription, audio_response
+    
     except Exception as e:
-        st.error(f"Error processing audio chunk: {e}")
-
-
-def record_audio(api_key, language):
-    """Records audio in chunks and sends it for processing."""
-    CHUNK = 1024
-    FORMAT = pyaudio.paInt16
-    CHANNELS = 1
-    RATE = 16000  # Reduced sample rate
-
-    p = pyaudio.PyAudio()
-
-    stream = p.open(format=FORMAT,
-                    channels=CHANNELS,
-                    rate=RATE,
-                    input=True,
-                    frames_per_buffer=CHUNK)
-
-    st.session_state.is_processing = True
-    while not st.session_state.stop_recording_flag:
-        try:
-            data = stream.read(CHUNK, exception_on_overflow=False)
-            # Convert the raw bytes to base64 encoded bytes
-            audio_data = base64.b64encode(data).decode('utf-8')
-            
-            threading.Thread(target=process_audio_chunk, args=(base64.b64decode(audio_data), api_key, language)).start()
-        except IOError as e:
-            if e.errno == pyaudio.paInputOverflowed:
-                print("Input overflowed, continuing...")
-                continue  # Continue to the next iteration
-            else:
-                raise  # Re-raise other IOErrors
-    st.session_state.is_processing = False
-    stream.stop_stream()
-    stream.close()
-    p.terminate()
-
-
-def play_audio_queue():
-    """Plays audio from the queue."""
-    while True:
-        try:
-            audio_bytes = st.session_state.audio_queue.get(timeout=0.1) # Added timeout
-            if audio_bytes:
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
-                    tmp_file.write(audio_bytes)
-                    temp_audio_path = tmp_file.name
-                playsound(temp_audio_path)
-                os.remove(temp_audio_path)
-
-        except queue.Empty:
-            if st.session_state.stop_recording_flag and st.session_state.audio_queue.empty():
-                break  # Exit if recording stopped and queue is empty
-            else:
-                continue # Continue checking the queue
-        except Exception as e:
-            st.error(f"Error playing audio: {e}")
-            break  # Exit on other errors
-
-
-def start_recording(api_key, language):
-    """Starts the recording process."""
-    if st.session_state.recording_thread is None or not st.session_state.recording_thread.is_alive():
-        st.session_state.stop_recording_flag = False
-        st.session_state.recording_thread = threading.Thread(target=record_audio, args=(api_key, language))
-        st.session_state.recording_thread.start()
-        threading.Thread(target=play_audio_queue, daemon=True).start()  # Start audio player thread
-        st.rerun()
-
-
-def stop_recording():
-    """Stops the recording process."""
-    st.session_state.stop_recording_flag = True
-    if st.session_state.recording_thread:
-        st.session_state.recording_thread.join()  # Wait for the recording thread to finish
-    st.session_state.recording_thread = None
-    st.rerun()
-
+        st.error(f"Error processing audio: {str(e)}")
+        return None, None
+    
+    finally:
+        st.session_state.is_processing = False
 
 # ------------------ APP LAYOUT ------------------
 # Header
@@ -353,7 +278,7 @@ with col2:
     st.subheader("Controls")
     
     # API Key input
-    api_key = st.text_input("Groq API Key", value="", type="password") # removed default api key
+    api_key = st.text_input("Groq API Key", value="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", type="password")
     
     # Language selection
     language_options = [f"{data['flag']} {name}" for name, data in languages.items()]
@@ -365,24 +290,35 @@ with col2:
     
     # Status indicator
     if st.session_state.is_processing:
-        st.info("Listening... ⏳")
+        st.info("Processing... ⏳")
     else:
         st.success("Ready 🎤")
-
-    # Start/Stop Recording Buttons
-    if st.session_state.recording_thread is None or not st.session_state.recording_thread.is_alive():
-        if st.button("Start Conversation"):
-            if api_key:
-                start_recording(api_key, st.session_state.language)
-            else:
-                st.warning("Please enter your Groq API Key.")
-    else:
-        if st.button("Stop Conversation"):
-            stop_recording()
-
+    
+    # Audio recorder using audio_recorder_streamlit
+    st.write("Click to record")
+    audio_bytes = ast.audio_recorder(
+        text="",
+        recording_color="#e53935",
+        neutral_color="#2E5BFF",
+        icon_size="2x"
+    )
     
     # Clear conversation button
     if st.button("🔄 Clear Conversation"):
         st.session_state.conversation = []
         st.session_state.conversation_history = []
         st.rerun()
+
+# Process recorded audio
+if audio_bytes and not st.session_state.is_processing:
+    # Display the recorded audio
+    st.sidebar.audio(audio_bytes, format="audio/wav")
+    
+    # Process the audio
+    with st.spinner("Processing your message..."):
+        transcription, audio_response = process_audio(audio_bytes, api_key)
+        
+        if transcription and audio_response:
+            # Play the audio response
+            st.sidebar.audio(audio_response, format="audio/mp3")
+            st.rerun()
