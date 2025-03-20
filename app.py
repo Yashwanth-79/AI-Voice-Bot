@@ -302,7 +302,7 @@ with col2:
     st.session_state.language = languages[selected_language_name]["code"]
 
 
-    with st.session_state.recording:
+    st.session_state.recording:
         audio_bytes = ast.audio_recorder(
             text="Click and starting saying",  # No text needed when recording
             recording_color="#e53935",
