@@ -184,14 +184,25 @@ def get_llama_response(question, api_key, language="en"):
     try:
         client = init_groq_client(api_key)
         language_name = next((name for name, data in languages.items() if data["code"] == language), "English")
-        system_prompt = (f"You are a helpful, friendly voice assistant.  Respond in {language_name}.")
+        system_prompt = f"""
+            You are a highly engaging and expressive AI voice assistant, designed to provide natural and fluid spoken responses in {language_name}.  
+            Your responses should be:  
+            - **Concise**: Keep answers brief but meaningful.  
+            - **Conversational**: Sound natural, as if speaking to a human.  
+            - **Insightful**: Offer thoughtful and relevant responses.  
+            - **Expressive**: Adapt tone to match the context of the question.  
+            
+            You will be asked general and reflective questions: Answer such questions politefully
+            
+            Always respond in a way that is clear,as the question is necessary, engaging, and easy to understand when spoken aloud.
+            """
+
         messages = [{"role": "system", "content": system_prompt},
                     {"role": "user", "content": question}]
         completion = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=messages,
-            temperature=0.7,
-            max_tokens=150,
+            temperature=0.5,
             top_p=1,
             stream=False
         )
