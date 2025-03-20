@@ -269,9 +269,7 @@ def process_audio(audio_bytes, api_key):
 
 # Header with Logo
 st.markdown("<div class='logo-container'><img src='https://s3-eu-west-1.amazonaws.com/tpd/logos/60d3a0bc65022800013b18b3/0x0.png'><h1>AI Voice Assistant</h1></div>", unsafe_allow_html=True)
-st.markdown("<h1 class='main-header'>Live AI Voice Bot</h1>", unsafe_allow_html=True)
 
-st.markdown("<p class='sub-header'>Record a message, and the AI will respond.</p>", unsafe_allow_html=True)
 
 # Main content area (using columns for layout)
 col1, col2 = st.columns([3, 1])  # Adjust column widths as needed
