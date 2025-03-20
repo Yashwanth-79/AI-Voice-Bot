@@ -284,7 +284,7 @@ st.markdown("<div class='logo-container'><img src='https://s3-eu-west-1.amazonaw
 col1, col2 = st.columns([3, 1])
 
 with col1:
-    st.subheader("Conversation")
+    st.subheader("Conversation: ")
     with st.container():
         st.markdown('<div class="conversation-container">', unsafe_allow_html=True)
         for entry in st.session_state.conversation:
@@ -303,20 +303,20 @@ with col2:
 
     # Use columns for Start/Stop buttons
     col_rec, col_stop = st.columns([1,1])
-    with col_rec:
-        if st.button("🎤 Start Recording"):
-            st.session_state.recording = True
-            st.session_state.audio_data = None  # Clear previous data
-            st.rerun()
+    # with col_rec:
+    #     if st.button("🎤 Start Recording",disabled=st.session_state.recording):
+    #         st.session_state.recording = True
+    #         st.session_state.audio_data = None  # Clear previous data
+    #         st.rerun()
 
     # with col_stop:
     #     if st.button("🛑 Stop Recording", disabled=not st.session_state.recording):
     #         st.session_state.recording = False
-            # st.rerun()  # Don't rerun here; process audio first
+    #         st.rerun()  # Don't rerun here; process audio first
 
     if st.session_state.recording:
         audio_bytes = ast.audio_recorder(
-            text="",  # No text needed when recording
+            text="Click and starting saying",  # No text needed when recording
             recording_color="#e53935",
             neutral_color="#2E5BFF",
             icon_size="2x",
