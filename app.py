@@ -339,7 +339,7 @@ def start_recording(api_key):
     # Store the audio file path
     st.session_state.current_audio_file = audio_file
     
-    st.experimental_rerun()
+    st.rerun()
 
 def stop_recording():
     """Stop recording and process the final audio"""
@@ -370,7 +370,7 @@ def stop_recording():
     st.session_state.live_transcription = ""
     st.session_state.is_processing = False
     
-    st.experimental_rerun()
+    st.rerun()
 
 def real_time_transcription(audio_file, api_key):
     """Perform real-time transcription on audio segments"""
