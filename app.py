@@ -302,16 +302,16 @@ with col2:
     st.session_state.language = languages[selected_language_name]["code"]
 
 
-    st.session_state.recording:
-        audio_bytes = ast.audio_recorder(
-            text="Click and starting saying",  # No text needed when recording
-            recording_color="#e53935",
-            neutral_color="#2E5BFF",
-            icon_size="2x",
-            key="audio_recorder"  # Add a key
-        )
-        if audio_bytes and st.session_state.audio_data != audio_bytes:
-            st.session_state.audio_data = audio_bytes
+    
+    audio_bytes = ast.audio_recorder(
+        text="Click and starting saying",  # No text needed when recording
+        recording_color="#e53935",
+        neutral_color="#2E5BFF",
+        icon_size="2x",
+        key="audio_recorder"  # Add a key
+    )
+    if audio_bytes and st.session_state.audio_data != audio_bytes:
+        st.session_state.audio_data = audio_bytes
 
 
     if st.session_state.audio_data and not st.session_state.recording:
