@@ -30,3 +30,4 @@ gtts
 playsound 
 pyaudio 
 groq
+streamlit-webrtc
