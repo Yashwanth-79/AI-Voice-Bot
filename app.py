@@ -8,7 +8,8 @@ from groq import Groq
 import audio_recorder_streamlit as ast
 
 # ------------------ PAGE CONFIGURATION ------------------
-st.set_page_config(page_title="AI Voice Assistant", page_icon="🎙️")
+st.set_page_config(page_title="AI Voice Assistant", page_icon="🎙️", layout="wide")
+
 
 # ------------------ CUSTOM CSS ------------------
 st.markdown("""
@@ -142,37 +143,12 @@ st.markdown("""
         margin-right: 1rem;
     }
     
-    /* Recording controls */
-    .recording-controls {
-        display: flex;
-        gap: 10px;
-        align-items: center;
-        margin-bottom: 15px;
-    }
-    
-    .stop-button {
-        background-color: #e53935;
-        color: white;
-        border: none;
-        border-radius: 50%;
-        width: 40px;
-        height: 40px;
+    .audio-buttons {
         display: flex;
         align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: all 0.2s;
     }
-    
-    .stop-button:hover {
-        background-color: #c62828;
-        transform: scale(1.05);
-    }
-    
-    .stop-icon {
-        width: 16px;
-        height: 16px;
-        background-color: white;
+    .audio-buttons > * {
+        margin-right: 0.5rem; /* Add some spacing between buttons */
     }
 
 </style>
@@ -185,10 +161,10 @@ if 'language' not in st.session_state:
     st.session_state.language = "en"
 if 'audio_data' not in st.session_state:
     st.session_state.audio_data = None
+if 'recording' not in st.session_state:  # Track recording state
+    st.session_state.recording = False
 if 'audio_to_autoplay' not in st.session_state:
     st.session_state.audio_to_autoplay = None
-if 'is_recording' not in st.session_state:
-    st.session_state.is_recording = False
 
 # ------------------ LANGUAGE OPTIONS ------------------
 languages = {
@@ -208,14 +184,13 @@ def init_groq_client(api_key):
 
 def autoplay_audio(audio_bytes):
     """Function to auto-play audio using HTML audio tag with autoplay attribute"""
-    if audio_bytes:
-        b64 = base64.b64encode(audio_bytes).decode()
-        md = f"""
-            <audio controls autoplay="true">
-            <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
-            </audio>
-            """
-        st.markdown(md, unsafe_allow_html=True)
+    b64 = base64.b64encode(audio_bytes).decode()
+    md = f"""
+        <audio controls autoplay="true">
+        <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+        </audio>
+        """
+    st.markdown(md, unsafe_allow_html=True)
 
 def transcribe_with_groq(audio_path, api_key, language="en"):
     try:
@@ -251,7 +226,7 @@ def get_llama_response(question, api_key, language="en"):
         completion = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=messages,
-            temperature=0.5,  # Adjusted for more focused responses
+            temperature=0.5,
             max_tokens=150,
             top_p=1,
             stream=False
@@ -305,81 +280,65 @@ def process_audio(audio_bytes, api_key):
 # Header with Logo
 st.markdown("<div class='logo-container'><img src='https://s3-eu-west-1.amazonaws.com/tpd/logos/60d3a0bc65022800013b18b3/0x0.png'><h1>AI Voice Assistant</h1></div>", unsafe_allow_html=True)
 
-# Main content area (using columns for layout)
-col1, col2 = st.columns([3, 1])  # Adjust column widths as needed
+# Main content area
+col1, col2 = st.columns([3, 1])
 
 with col1:
     st.subheader("Conversation")
-    conversation_container = st.container()
-    with conversation_container:
+    with st.container():
         st.markdown('<div class="conversation-container">', unsafe_allow_html=True)
-        for i, entry in enumerate(st.session_state.conversation):
+        for entry in st.session_state.conversation:
             st.markdown(f'<div class="user-message">{entry["user"]}</div>', unsafe_allow_html=True)
             st.markdown(f'<div class="assistant-message">{entry["assistant"]}</div>', unsafe_allow_html=True)
-            
-            # Create a unique key for each audio entry
-            audio_key = f"audio_{i}"
-            if "audio_response" in entry and entry["audio_response"]:
-                # Each conversation entry gets its own autoplay audio
-                st.markdown(f"<div id='{audio_key}'>", unsafe_allow_html=True)
-                b64 = base64.b64encode(entry["audio_response"]).decode()
-                md = f"""
-                    <audio controls autoplay="true">
-                    <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
-                    </audio>
-                    """
-                st.markdown(md, unsafe_allow_html=True)
-                st.markdown("</div>", unsafe_allow_html=True)
-                
         st.markdown('</div>', unsafe_allow_html=True)
 
 with col2:
     st.subheader("Controls")
     api_key = st.text_input("Groq API Key", type="password")
-    st.link_button(label="Get API Here", url="https://console.groq.com/playground")
+    st.link_button(label = "Get API Here", url ="https://console.groq.com/playground")
     language_options = [f"{data['flag']} {name}" for name, data in languages.items()]
     selected_language = st.selectbox("Select Language", language_options, index=0)
     selected_language_name = selected_language.split(" ", 1)[1]
     st.session_state.language = languages[selected_language_name]["code"]
 
-    # Recording controls with Stop button
-    st.markdown("<div class='recording-controls'>", unsafe_allow_html=True)
-    
-    # Start recording button
-    col_rec1, col_rec2 = st.columns([3, 1])
-    with col_rec1:
+    # Use columns for Start/Stop buttons
+    col_rec, col_stop = st.columns([1,1])
+    with col_rec:
+        if st.button("🎤 Start Recording", disabled=st.session_state.recording):
+            st.session_state.recording = True
+            st.session_state.audio_data = None  # Clear previous data
+            st.rerun()
+
+    with col_stop:
+        if st.button("🛑 Stop Recording", disabled=not st.session_state.recording):
+            st.session_state.recording = False
+            # st.rerun()  # Don't rerun here; process audio first
+
+    if st.session_state.recording:
         audio_bytes = ast.audio_recorder(
-            text="Click to record",
+            text="",  # No text needed when recording
             recording_color="#e53935",
             neutral_color="#2E5BFF",
             icon_size="2x",
-            pause_threshold=120.0,  # Long pause threshold to allow stopping manually
-            recording_callback=lambda: setattr(st.session_state, 'is_recording', True),
-            stopped_callback=lambda: setattr(st.session_state, 'is_recording', False)
+            key="audio_recorder"  # Add a key
         )
-    
-    with col_rec2:
-        # Stop button
-        if st.button("⏹️ Stop", key="stop_recording"):
-            st.session_state.is_recording = False
-            st.rerun()
-    
-    st.markdown("</div>", unsafe_allow_html=True)
+        if audio_bytes and st.session_state.audio_data != audio_bytes:
+            st.session_state.audio_data = audio_bytes
 
-    if audio_bytes and st.session_state.audio_data != audio_bytes:
-        st.session_state.audio_data = audio_bytes
+
+    if st.session_state.audio_data and not st.session_state.recording:
         with st.spinner("Processing your message..."):
-            transcription, response, audio_response = process_audio(audio_bytes, api_key)
+            transcription, response, audio_response = process_audio(st.session_state.audio_data, api_key)
             if transcription and response and audio_response:
-                # Add to conversation history with audio response
                 st.session_state.conversation.append({
                     "user": transcription,
                     "assistant": response,
                     "audio_response": audio_response
                 })
-                # Set the audio to autoplay only for the most recent conversation
                 st.session_state.audio_to_autoplay = audio_response
+                st.session_state.audio_data = None # Clear audio data after processing
         st.rerun()
+
 
     if st.button("🔄 Clear Conversation"):
         st.session_state.conversation = []
@@ -387,11 +346,10 @@ with col2:
         st.session_state.audio_to_autoplay = None
         st.rerun()
 
-# Auto-play most recent audio if available 
-# (This is a backup and may not be necessary with the in-conversation autoplays)
+# Auto-play audio if available
 if st.session_state.audio_to_autoplay:
     autoplay_audio(st.session_state.audio_to_autoplay)
-    st.session_state.audio_to_autoplay = None  # Reset after playing
+    st.session_state.audio_to_autoplay = None
 
 # Footer
 st.markdown("<div class='footer'>© 2024 Home.LLC | <a href='https://www.home.llc/'>Visit our website</a></div>", unsafe_allow_html=True)
