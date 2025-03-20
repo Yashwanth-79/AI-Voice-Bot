@@ -1,25 +1,19 @@
 import os
-import time
 import tempfile
-import threading
 import streamlit as st
 from gtts import gTTS
 from datetime import datetime
 from groq import Groq
-import sounddevice as sd
-import numpy as np
-import queue
-import wave
-import pyaudio  # Using pyaudio for more reliable recording
+import audio_recorder_streamlit as ast
 
 # ------------------ PAGE CONFIGURATION ------------------
 st.set_page_config(page_title="AI Voice Assistant", page_icon="🎙️", layout="wide")
 
-# ------------------ CUSTOM CSS ------------------ (No changes needed here)
+# ------------------ CUSTOM CSS ------------------
 st.markdown("""
 <style>
     /* ... (Your existing CSS, no changes needed) ... */
-    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
     
     * {
         font-family: 'Poppins', sans-serif;
@@ -151,25 +145,9 @@ st.markdown("""
 # ------------------ INITIALIZE SESSION STATE ------------------
 if 'conversation' not in st.session_state:
     st.session_state.conversation = []
-if 'conversation_history' not in st.session_state:
-    st.session_state.conversation_history = []
-if 'listening' not in st.session_state:
-    st.session_state.listening = False
-if 'live_transcription' not in st.session_state:
-    st.session_state.live_transcription = ""
 if 'language' not in st.session_state:
     st.session_state.language = "en"
-if 'audio_queue' not in st.session_state:
-    st.session_state.audio_queue = queue.Queue()
-if 'recording_thread' not in st.session_state:
-    st.session_state.recording_thread = None
-if 'transcription_thread' not in st.session_state:
-    st.session_state.transcription_thread = None
-if 'stop_recording' not in st.session_state:
-    st.session_state.stop_recording = threading.Event()
-if 'playback_thread' not in st.session_state:
-    st.session_state.playback_thread = None
-if 'audio_data' not in st.session_state:  # For single message processing
+if 'audio_data' not in st.session_state:
     st.session_state.audio_data = None
 
 # ------------------ LANGUAGE OPTIONS ------------------
@@ -184,43 +162,9 @@ languages = {
     "Arabic": {"code": "ar", "flag": "🇸🇦"}
 }
 
-# ------------------ AUDIO CONFIGURATION ------------------
-FORMAT = pyaudio.paInt16
-CHANNELS = 1
-RATE = 16000
-CHUNK = 1024
-
 # ------------------ FUNCTIONS ------------------
 def init_groq_client(api_key):
     return Groq(api_key=api_key)
-
-def record_audio(audio_file):
-    """Records audio using PyAudio and saves to a file."""
-    p = pyaudio.PyAudio()
-    stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK)
-    frames = []
-
-    while not st.session_state.stop_recording.is_set():
-        try:
-            data = stream.read(CHUNK, exception_on_overflow=False)  # Handle overflow
-            frames.append(data)
-        except IOError as e:
-            if e.errno == pyaudio.paInputOverflowed:
-                print("Input overflowed, continuing...")
-                continue  # Continue to the next iteration
-            else:
-                raise
-
-    stream.stop_stream()
-    stream.close()
-    p.terminate()
-
-    with wave.open(audio_file, 'wb') as wf:
-        wf.setnchannels(CHANNELS)
-        wf.setsampwidth(p.get_sample_size(FORMAT))
-        wf.setframerate(RATE)
-        wf.writeframes(b''.join(frames))
-    print(f"Audio saved to {audio_file}")
 
 def transcribe_with_groq(audio_path, api_key, language="en"):
     try:
@@ -240,15 +184,9 @@ def get_llama_response(question, api_key, language="en"):
     try:
         client = init_groq_client(api_key)
         language_name = next((name for name, data in languages.items() if data["code"] == language), "English")
-        system_prompt = (f"You are a helpful, friendly voice assistant. Keep your responses concise and conversational. "
-                         f"You're currently speaking in {language_name}. Respond in the same language as the user's question.")
-        messages = [{"role": "system", "content": system_prompt}]
-        for exchange in st.session_state.conversation_history:
-            messages.extend([
-                {"role": "user", "content": exchange["user"]},
-                {"role": "assistant", "content": exchange["assistant"]}
-            ])
-        messages.append({"role": "user", "content": question})
+        system_prompt = (f"You are a helpful, friendly voice assistant.  Respond in {language_name}.")
+        messages = [{"role": "system", "content": system_prompt},
+                    {"role": "user", "content": question}]
         completion = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=messages,
@@ -257,11 +195,7 @@ def get_llama_response(question, api_key, language="en"):
             top_p=1,
             stream=False
         )
-        answer = completion.choices[0].message.content.strip()
-        st.session_state.conversation_history.append({"user": question, "assistant": answer})
-        if len(st.session_state.conversation_history) > 5:
-            st.session_state.conversation_history.pop(0)
-        return answer
+        return completion.choices[0].message.content.strip()
     except Exception as e:
         st.error(f"Error calling Groq API: {str(e)}")
         return "I encountered an error while responding."
@@ -279,122 +213,8 @@ def text_to_speech(text, language="en"):
         st.error(f"Error in text-to-speech: {str(e)}")
         return None
 
-def start_recording(api_key):
-    if st.session_state.listening:
-        return
-
-    st.session_state.listening = True
-    st.session_state.live_transcription = "Listening..."
-    st.session_state.stop_recording.clear()
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as tmp_file:
-        audio_file = tmp_file.name
-
-    recording_thread = threading.Thread(target=record_audio, args=(audio_file,))
-    recording_thread.daemon = True
-    recording_thread.start()
-    st.session_state.recording_thread = recording_thread
-
-    transcription_thread = threading.Thread(target=real_time_transcription, args=(audio_file, api_key))
-    transcription_thread.daemon = True
-    transcription_thread.start()
-    st.session_state.transcription_thread = transcription_thread
-
-    st.session_state.current_audio_file = audio_file
-    st.rerun()
-
-def stop_recording():
-    if not st.session_state.listening:
-        return
-
-    st.session_state.stop_recording.set()
-    time.sleep(0.5)  # Allow time for final writes
-
-    st.session_state.listening = False
-
-    if st.session_state.recording_thread:
-        st.session_state.recording_thread.join(timeout=2)  # Increased timeout
-    if st.session_state.transcription_thread:
-        st.session_state.transcription_thread.join(timeout=2)
-
-    audio_file = st.session_state.current_audio_file
-    if os.path.exists(audio_file):
-        process_final_audio(audio_file, st.session_state.api_key)
-
-    st.session_state.live_transcription = ""
-    st.rerun()
-
-def real_time_transcription(audio_file, api_key):
-    try:
-        time.sleep(2)  # Wait for some audio
-        last_transcription_time = time.time()
-
-        while not st.session_state.stop_recording.is_set():
-            current_time = time.time()
-            if current_time - last_transcription_time > 3:
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as tmp_segment:
-                    segment_file = tmp_segment.name
-                try:
-                    with open(audio_file, 'rb') as src, open(segment_file, 'wb') as dst:
-                        dst.write(src.read())
-                    partial_transcription = transcribe_with_groq(segment_file, api_key, st.session_state.language)
-                    if partial_transcription:
-                        st.session_state.live_transcription = partial_transcription
-                except Exception as e:
-                    print(f"Error in segment transcription: {e}")
-                finally:
-                    os.remove(segment_file)
-                last_transcription_time = current_time
-            time.sleep(0.1)
-    except Exception as e:
-        print(f"Error in real_time_transcription: {e}")
-
-def process_final_audio(audio_file, api_key):
-    try:
-        transcription = transcribe_with_groq(audio_file, api_key, st.session_state.language)
-        if not transcription:
-            st.warning("No speech detected or transcription failed")
-            return
-
-        response = get_llama_response(transcription, api_key, st.session_state.language)
-        audio_response = text_to_speech(response, st.session_state.language)
-
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        st.session_state.conversation.append({
-            "user": transcription,
-            "assistant": response,
-            "timestamp": timestamp,
-            "audio_response": audio_response
-        })
-        if audio_response:
-            st.session_state.audio_queue.put(audio_response)
-            if st.session_state.playback_thread is None or not st.session_state.playback_thread.is_alive():
-                st.session_state.playback_thread = threading.Thread(target=play_audio_responses, daemon=True)
-                st.session_state.playback_thread.start()
-
-        os.remove(audio_file)
-    except Exception as e:
-        st.error(f"Error processing final audio: {str(e)}")
-
-def play_audio_responses():
-    while True:
-        try:
-            audio_bytes = st.session_state.audio_queue.get(timeout=0.1)
-            if audio_bytes:
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
-                    tmp_file.write(audio_bytes)
-                    os.system(f"afplay {tmp_file.name}" if os.name == 'posix' else f"start /B {tmp_file.name}")  # Cross-platform
-                os.remove(tmp_file.name)
-        except queue.Empty:
-            if st.session_state.stop_recording.is_set() and st.session_state.audio_queue.empty():
-                break
-            continue
-        except Exception as e:
-            st.error(f"Error playing audio: {e}")
-            break
-
-def process_single_message(audio_bytes, api_key):
-    """Processes a single audio message (from audio_recorder_streamlit)."""
+def process_audio(audio_bytes, api_key):
+    """Processes a single audio message, gets AI response, and generates audio."""
     if not audio_bytes:
         return
 
@@ -406,35 +226,22 @@ def process_single_message(audio_bytes, api_key):
         transcription = transcribe_with_groq(audio_file, api_key, st.session_state.language)
         if not transcription:
             st.warning("No speech detected or transcription failed")
-            return
+            return None, None
 
         response = get_llama_response(transcription, api_key, st.session_state.language)
         audio_response = text_to_speech(response, st.session_state.language)
 
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        st.session_state.conversation.append({
-            "user": transcription,
-            "assistant": response,
-            "timestamp": timestamp,
-            "audio_response": audio_response
-        })
-
-        # Queue audio for playback
-        if audio_response:
-            st.session_state.audio_queue.put(audio_response)
-            if st.session_state.playback_thread is None or not st.session_state.playback_thread.is_alive():
-                st.session_state.playback_thread = threading.Thread(target=play_audio_responses, daemon=True)
-                st.session_state.playback_thread.start()
-
+        return transcription, response, audio_response
 
     except Exception as e:
-        st.error(f"Error processing single message: {e}")
+        st.error(f"Error processing audio: {e}")
+        return None, None, None
     finally:
-        os.remove(audio_file)  # Clean up
+        os.remove(audio_file)
 
 # ------------------ APP LAYOUT ------------------
 st.markdown("<h1 class='main-header'>AI Voice Assistant</h1>", unsafe_allow_html=True)
-st.markdown("<p class='sub-header'>Your AI-powered multilingual voice companion</p>", unsafe_allow_html=True)
+st.markdown("<p class='sub-header'>Record a message, and the AI will respond.</p>", unsafe_allow_html=True)
 
 col1, col2 = st.columns([3, 1])
 
@@ -444,53 +251,40 @@ with col1:
     with conversation_container:
         st.markdown('<div class="conversation-container">', unsafe_allow_html=True)
         for entry in st.session_state.conversation:
-            time_str = entry.get("timestamp", "")
-            st.markdown(f'<div class="user-message">{entry["user"]}<div class="message-timestamp">{time_str}</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="assistant-message">{entry["assistant"]}<div class="message-timestamp">{time_str}</div></div>', unsafe_allow_html=True)
-        if st.session_state.listening and st.session_state.live_transcription:
-            st.markdown(f'<div class="live-transcription">{st.session_state.live_transcription}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="user-message">{entry["user"]}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="assistant-message">{entry["assistant"]}</div>', unsafe_allow_html=True)
+            if "audio_response" in entry:
+                st.audio(entry["audio_response"], format="audio/mp3")  # Play audio
         st.markdown('</div>', unsafe_allow_html=True)
 
 with col2:
     st.subheader("Controls")
     api_key = st.text_input("Groq API Key", type="password")
-    st.session_state.api_key = api_key
-
     language_options = [f"{data['flag']} {name}" for name, data in languages.items()]
     selected_language = st.selectbox("Select Language", language_options, index=0)
     selected_language_name = selected_language.split(" ", 1)[1]
     st.session_state.language = languages[selected_language_name]["code"]
 
-    if st.session_state.listening:
-        st.markdown('<div class="listening-indicator">Listening...</div>', unsafe_allow_html=True)
-    else:
-        st.success("Ready 🎤")
-
-    col_start, col_stop = st.columns(2)
-    with col_start:
-        if st.button("🎤 Start Talking", disabled=st.session_state.listening):
-            if api_key:
-                start_recording(api_key)
-            else:
-                st.warning("Please enter your Groq API Key.")
-    with col_stop:
-        if st.button("🛑 Stop", disabled=not st.session_state.listening):
-            stop_recording()
-
-    st.markdown("#### Or record a single message:")
     audio_bytes = ast.audio_recorder(
-        text="",
+        text="Click to record",
         recording_color="#e53935",
         neutral_color="#2E5BFF",
         icon_size="2x"
     )
+
     if audio_bytes and st.session_state.audio_data != audio_bytes:
-        st.session_state.audio_data = audio_bytes
-        process_single_message(audio_bytes, api_key)
-        st.rerun()
+        st.session_state.audio_data = audio_bytes  # Only update on new recording
+        with st.spinner("Processing your message..."):
+            transcription, response, audio_response = process_audio(audio_bytes, api_key)
+            if transcription and response and audio_response:
+                st.session_state.conversation.append({
+                    "user": transcription,
+                    "assistant": response,
+                    "audio_response": audio_response
+                })
+        st.rerun()  # Rerun after processing
 
     if st.button("🔄 Clear Conversation"):
         st.session_state.conversation = []
-        st.session_state.conversation_history = []
-        st.session_state.live_transcription = ""
+        st.session_state.audio_data = None  # Reset audio data
         st.rerun()
