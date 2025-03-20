@@ -259,6 +259,7 @@ def process_audio(audio_bytes, api_key):
 # ------------------ APP LAYOUT ------------------
 
 # Header with Logo
+st.logo("https://s3-eu-west-1.amazonaws.com/tpd/logos/60d3a0bc65022800013b18b3/0x0.png")
 st.markdown("<div class='logo-container'><img src='https://s3-eu-west-1.amazonaws.com/tpd/logos/60d3a0bc65022800013b18b3/0x0.png'><h1>AI Voice Assistant</h1></div>", unsafe_allow_html=True)
 
 
