@@ -8,7 +8,7 @@ from groq import Groq
 import audio_recorder_streamlit as ast
 
 # ------------------ PAGE CONFIGURATION ------------------
-st.set_page_config(page_title="AI Voice Assistant", page_icon="🎙️", layout="wide")
+st.set_page_config(page_title="AI Voice Assistant", page_icon="🎙️")
 
 
 # ------------------ CUSTOM CSS ------------------
@@ -304,7 +304,7 @@ with col2:
     # Use columns for Start/Stop buttons
     col_rec, col_stop = st.columns([1,1])
     with col_rec:
-        if st.button("🎤 Start Recording", disabled=st.session_state.recording):
+        if st.button("🎤 Start Recording"):
             st.session_state.recording = True
             st.session_state.audio_data = None  # Clear previous data
             st.rerun()
