@@ -327,7 +327,7 @@ with col1:
 
 with col2:
     st.subheader("Controls")
-    api_key = st.text_input("Groq API Key", type="password")
+    api_key = st.text_input("Groq API Key", type="password",value = "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")
     st.link_button(label="Get API Here", url="https://console.groq.com/playground")
     language_options = [f"{data['flag']} {name}" for name, data in languages.items()]
     selected_language = st.selectbox("Select Language", language_options, index=0)
