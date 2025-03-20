@@ -295,6 +295,23 @@ def process_audio(audio_bytes, api_key):
 st.logo("https://s3-eu-west-1.amazonaws.com/tpd/logos/60d3a0bc65022800013b18b3/0x0.png")
 # Header with Logo
 st.markdown("<div class='logo-container'><img src='https://s3-eu-west-1.amazonaws.com/tpd/logos/60d3a0bc65022800013b18b3/0x0.png'><h1>AI Voice Assistant</h1></div>", unsafe_allow_html=True)
+st.sidebar.title("App Instructions")
+st.sidebar.markdown(
+    """
+    **Welcome to the AI Voice Assistant!**
+
+    **How It Works:**
+    - **Record Your Message:** Click **Start Recording** and speak into your microphone.
+    - **Stop Recording:** Press **Stop** when you’re finished.
+    - **Processing:** Your voice will be transcribed using Groq's Whisper API, and an AI response will be generated.
+    - **Language Selection:** Choose your preferred language from the dropdown.
+    - **Clear Conversation:** Use the **Clear Conversation** button to reset the chat history.
+
+    **Setup:**
+    - Enter your **Groq API Key** in the provided field.
+    - Ensure you have a stable internet connection for transcription and AI responses.
+    """
+)
 
 # Main content area
 col1, col2 = st.columns([3, 1])
@@ -339,7 +356,7 @@ with col2:
 
     if st.session_state.recording_state == 'recording':
         audio_bytes = ast.audio_recorder(
-            text="Click n Speak",
+            text="Click -> Speak -> Press Stop",
             recording_color="#e53935",
             neutral_color="#2E5BFF",
             icon_size="2x",
