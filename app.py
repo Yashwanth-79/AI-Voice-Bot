@@ -3,16 +3,16 @@ import time
 import tempfile
 import threading
 import streamlit as st
-import audio_recorder_streamlit as ast
+import audio_recorder_streamlit as ast  # Keep for single message recording
 from gtts import gTTS
 from datetime import datetime
 from groq import Groq
 import sounddevice as sd
-import soundfile as sf
 import numpy as np
 import queue
 import wave
-from io import BytesIO
+from playsound import playsound  # Import playsound
+
 
 # ------------------ PAGE CONFIGURATION ------------------
 st.set_page_config(
@@ -24,6 +24,7 @@ st.set_page_config(
 # ------------------ CUSTOM CSS ------------------
 st.markdown("""
 <style>
+    /* ... (Your existing CSS, no changes needed) ... */
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
     
     * {
@@ -174,6 +175,8 @@ if 'transcription_thread' not in st.session_state:
     st.session_state.transcription_thread = None
 if 'stop_recording' not in st.session_state:
     st.session_state.stop_recording = threading.Event()
+if 'playback_thread' not in st.session_state:  # Add playback thread state
+    st.session_state.playback_thread = None
 
 # ------------------ LANGUAGE OPTIONS ------------------
 languages = {
@@ -193,29 +196,27 @@ def init_groq_client(api_key):
     return Groq(api_key=api_key)
 
 def audio_callback(indata, frames, time, status):
-    """Callback function for the audio stream"""
+    """Callback function for the audio stream, puts audio data in the queue."""
     if status:
         print(f"Stream status: {status}")
     st.session_state.audio_queue.put(indata.copy())
 
 def save_audio_stream(filename, sample_rate=16000, channels=1):
-    """Save audio stream to a file"""
+    """Records audio from the microphone and saves it to a WAV file."""
     try:
-        # Open the audio stream
         with sd.InputStream(callback=audio_callback, channels=channels, samplerate=sample_rate):
-            # Create a wave file
             with wave.open(filename, 'wb') as wf:
                 wf.setnchannels(channels)
-                wf.setsampwidth(2)
+                wf.setsampwidth(2)  # 16-bit samples
                 wf.setframerate(sample_rate)
-                
-                # Continue saving audio until stop_recording event is set
+
                 while not st.session_state.stop_recording.is_set():
                     if not st.session_state.audio_queue.empty():
                         chunk = st.session_state.audio_queue.get()
+                        # Convert to int16 and write to the wave file
                         wf.writeframes((chunk * 32767).astype(np.int16).tobytes())
                     else:
-                        time.sleep(0.01)
+                        time.sleep(0.01)  # Small delay to avoid busy-waiting
     except Exception as e:
         print(f"Error in save_audio_stream: {e}")
 
@@ -229,226 +230,182 @@ def transcribe_with_groq(audio_path, api_key, language="en"):
                 model="whisper-large-v3-turbo",
                 language=language
             )
-        
-        transcription = response.text.strip()
-        return transcription
+        return response.text.strip()
     except Exception as e:
         st.error(f"Error in transcription: {str(e)}")
         return ""
 
 def get_llama_response(question, api_key, language="en"):
-    """Get response from Groq's Llama model with conversation history"""
+    """Get response from Groq's Llama model with conversation history."""
     try:
         client = init_groq_client(api_key)
-        
-        # Get language name for system prompt
         language_name = next((name for name, data in languages.items() if data["code"] == language), "English")
-        
-        # Create system prompt
-        system_prompt = f"""You are a helpful, friendly voice assistant. Keep your responses concise and conversational. 
-        You're currently speaking in {language_name}. Respond in the same language as the user's question."""
-        
-        # Build messages with conversation history
+        system_prompt = (f"You are a helpful, friendly voice assistant. Keep your responses concise and conversational. "
+                         f"You're currently speaking in {language_name}. Respond in the same language as the user's question.")
         messages = [{"role": "system", "content": system_prompt}]
-        
-        # Add conversation history for context
         for exchange in st.session_state.conversation_history:
-            messages.append({"role": "user", "content": exchange["user"]})
-            messages.append({"role": "assistant", "content": exchange["assistant"]})
-        
-        # Add current question
+            messages.extend([
+                {"role": "user", "content": exchange["user"]},
+                {"role": "assistant", "content": exchange["assistant"]}
+            ])
         messages.append({"role": "user", "content": question})
-        
-        # Get completion from Groq
         completion = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=messages,
             temperature=0.7,
-            max_tokens=150,  # Keep responses short for voice
+            max_tokens=150,
             top_p=1,
             stream=False
         )
-        
         answer = completion.choices[0].message.content.strip()
-        
-        # Update conversation history
         st.session_state.conversation_history.append({"user": question, "assistant": answer})
-        if len(st.session_state.conversation_history) > 5:  # Keep last 5 exchanges
+        if len(st.session_state.conversation_history) > 5:
             st.session_state.conversation_history.pop(0)
-            
         return answer
     except Exception as e:
         st.error(f"Error calling Groq API: {str(e)}")
         return "I encountered an error while responding."
 
 def text_to_speech(text, language="en"):
-    """Convert text to speech and return audio bytes"""
+    """Convert text to speech and return audio bytes."""
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
-            tts_filename = tmp_file.name
-        
-        # Generate speech
-        tts = gTTS(text=text, lang=language, slow=False)
-        tts.save(tts_filename)
-        
-        # Read the file and get the bytes
-        with open(tts_filename, "rb") as f:
-            audio_bytes = f.read()
-        
-        # Clean up
-        if os.path.exists(tts_filename):
-            os.remove(tts_filename)
-        
+            tts = gTTS(text=text, lang=language, slow=False)
+            tts.save(tmp_file.name)
+            with open(tmp_file.name, "rb") as f:
+                audio_bytes = f.read()
+        os.remove(tmp_file.name)  # Clean up
         return audio_bytes
     except Exception as e:
         st.error(f"Error in text-to-speech: {str(e)}")
         return None
 
 def start_recording(api_key):
-    """Start recording and transcribing audio"""
+    """Start recording and transcribing audio."""
     if st.session_state.listening:
         return
-    
-    # Set listening state
+
     st.session_state.listening = True
     st.session_state.live_transcription = "Listening..."
-    st.session_state.stop_recording.clear()
-    
-    # Create temp file for audio
+    st.session_state.stop_recording.clear()  # Clear the stop event
+
     with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as tmp_file:
         audio_file = tmp_file.name
-    
+
     # Start recording thread
-    recording_thread = threading.Thread(
-        target=save_audio_stream, 
-        args=(audio_file,)
-    )
-    recording_thread.daemon = True
+    recording_thread = threading.Thread(target=save_audio_stream, args=(audio_file,))
+    recording_thread.daemon = True  # Allow the thread to exit when the main program exits
     recording_thread.start()
     st.session_state.recording_thread = recording_thread
-    
+
     # Start real-time transcription thread
-    transcription_thread = threading.Thread(
-        target=real_time_transcription,
-        args=(audio_file, api_key)
-    )
+    transcription_thread = threading.Thread(target=real_time_transcription, args=(audio_file, api_key))
     transcription_thread.daemon = True
     transcription_thread.start()
     st.session_state.transcription_thread = transcription_thread
-    
-    # Store the audio file path
-    st.session_state.current_audio_file = audio_file
-    
+
+    st.session_state.current_audio_file = audio_file  # Store for later
     st.rerun()
 
 def stop_recording():
-    """Stop recording and process the final audio"""
+    """Stop recording and process the final audio."""
     if not st.session_state.listening:
         return
-    
-    # Signal the recording to stop
-    st.session_state.stop_recording.set()
-    time.sleep(0.5)  # Give time for threads to clean up
-    
-    # Set state
+
+    st.session_state.stop_recording.set()  # Signal recording to stop
+    time.sleep(0.5) # Give it a moment to write
+
     st.session_state.listening = False
     st.session_state.is_processing = True
-    
-    # Wait for threads to finish
+
+    # Join threads (wait for them to finish)
     if st.session_state.recording_thread:
         st.session_state.recording_thread.join(timeout=1)
     if st.session_state.transcription_thread:
         st.session_state.transcription_thread.join(timeout=1)
-    
-    # Process the final audio
+
+
     audio_file = st.session_state.current_audio_file
     if os.path.exists(audio_file):
-        # Process the full audio
-        process_final_audio(audio_file, st.session_state.api_key)
-        
-    # Reset state
+        process_final_audio(audio_file, st.session_state.api_key)  # Pass API key
+
     st.session_state.live_transcription = ""
     st.session_state.is_processing = False
-    
     st.rerun()
 
 def real_time_transcription(audio_file, api_key):
-    """Perform real-time transcription on audio segments"""
+    """Perform real-time transcription on audio segments."""
     try:
-        # Wait for some audio to be recorded
-        time.sleep(2)
-        
+        time.sleep(2)  # Wait for some audio to be recorded
         last_transcription_time = time.time()
-        
+
         while not st.session_state.stop_recording.is_set():
             current_time = time.time()
-            
-            # Only transcribe every few seconds to avoid overwhelming the API
-            if current_time - last_transcription_time > 3:
-                # Create a temporary copy of the current audio
+            if current_time - last_transcription_time > 3:  # Transcribe every 3 seconds
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as tmp_segment:
                     segment_file = tmp_segment.name
-                
                 try:
-                    # Copy the current audio data
-                    with open(audio_file, 'rb') as src:
-                        with open(segment_file, 'wb') as dst:
-                            dst.write(src.read())
-                    
-                    # Transcribe the segment
-                    partial_transcription = transcribe_with_groq(
-                        segment_file, 
-                        api_key, 
-                        st.session_state.language
-                    )
-                    
+                    # Copy the current audio data to a segment file
+                    with open(audio_file, 'rb') as src, open(segment_file, 'wb') as dst:
+                        dst.write(src.read())
+
+                    partial_transcription = transcribe_with_groq(segment_file, api_key, st.session_state.language)
                     if partial_transcription:
-                        st.session_state.live_transcription = partial_transcription
+                        st.session_state.live_transcription = partial_transcription  # Update live transcription
                 except Exception as e:
                     print(f"Error in segment transcription: {e}")
                 finally:
-                    # Clean up segment file
-                    if os.path.exists(segment_file):
-                        os.remove(segment_file)
-                
+                    os.remove(segment_file)  # Clean up segment file
                 last_transcription_time = current_time
-            
             time.sleep(0.1)
-            
     except Exception as e:
         print(f"Error in real_time_transcription: {e}")
 
 def process_final_audio(audio_file, api_key):
-    """Process the final audio recording"""
+    """Process the complete audio recording after stopping."""
     try:
-        # Final transcription
         transcription = transcribe_with_groq(audio_file, api_key, st.session_state.language)
-        
         if not transcription:
             st.warning("No speech detected or transcription failed")
             return
-        
-        # Get AI response
+
         response = get_llama_response(transcription, api_key, st.session_state.language)
-        
-        # Generate audio response
         audio_response = text_to_speech(response, st.session_state.language)
-        
-        # Add to conversation with timestamp
+
         timestamp = datetime.now().strftime("%H:%M:%S")
         st.session_state.conversation.append({
-            "user": transcription, 
+            "user": transcription,
             "assistant": response,
             "timestamp": timestamp,
-            "audio_response": audio_response
+            "audio_response": audio_response  # Store for playback
         })
-        
-        # Clean up audio file
-        if os.path.exists(audio_file):
-            os.remove(audio_file)
-            
+        if audio_response:
+            st.session_state.audio_queue.put(audio_response)  # Queue for playback
+            if st.session_state.playback_thread is None or not st.session_state.playback_thread.is_alive():
+                st.session_state.playback_thread = threading.Thread(target=play_audio_responses, daemon=True)
+                st.session_state.playback_thread.start()
+
+        os.remove(audio_file)  # Clean up
     except Exception as e:
         st.error(f"Error processing final audio: {str(e)}")
+
+def play_audio_responses():
+    """Plays audio responses from the queue."""
+    while True:
+        try:
+            audio_bytes = st.session_state.audio_queue.get(timeout=0.1)
+            if audio_bytes:
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
+                    tmp_file.write(audio_bytes)
+                    playsound(tmp_file.name)  # Use playsound
+                os.remove(tmp_file.name)
+        except queue.Empty:
+            if st.session_state.stop_recording.is_set() and st.session_state.audio_queue.empty():
+                break # Exit if recording is stopped and queue is empty.
+            continue
+        except Exception as e:
+            st.error(f"Error playing audio: {e}")
+            break
 
 # ------------------ APP LAYOUT ------------------
 # Header
@@ -459,117 +416,86 @@ st.markdown("<p class='sub-header'>Your AI-powered multilingual voice companion<
 col1, col2 = st.columns([3, 1])
 
 with col1:
-    # Conversation display container
     st.subheader("Conversation")
-    
-    # Create a container for the conversation
-    conversation_container = st.container()
-    
+    conversation_container = st.container()  # Use a container
     with conversation_container:
         st.markdown('<div class="conversation-container">', unsafe_allow_html=True)
-        
-        # Display the conversation history
         for entry in st.session_state.conversation:
             time_str = entry.get("timestamp", "")
             st.markdown(f'<div class="user-message">{entry["user"]}<div class="message-timestamp">{time_str}</div></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="assistant-message">{entry["assistant"]}<div class="message-timestamp">{time_str}</div></div>', unsafe_allow_html=True)
-            
-            # Play the audio response if available
-            if "audio_response" in entry and entry["audio_response"]:
-                st.audio(entry["audio_response"], format="audio/mp3")
-        
-        # Display live transcription if listening
+            #  Don't play audio here.  It's handled by the playback thread.
+
         if st.session_state.listening and st.session_state.live_transcription:
             st.markdown(f'<div class="live-transcription">{st.session_state.live_transcription}</div>', unsafe_allow_html=True)
-        
         st.markdown('</div>', unsafe_allow_html=True)
 
 with col2:
-    # Settings and controls
     st.subheader("Controls")
-    
-    # API Key input
-    api_key = st.text_input("Groq API Key", value="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", type="password")
-    st.session_state.api_key = api_key
-    
-    # Language selection
+    api_key = st.text_input("Groq API Key", value="", type="password")  # Removed default API key
+    st.session_state.api_key = api_key  # Store in session state
+
     language_options = [f"{data['flag']} {name}" for name, data in languages.items()]
     selected_language = st.selectbox("Select Language", language_options, index=0)
-    
-    # Extract language code from selection
     selected_language_name = selected_language.split(" ", 1)[1]
     st.session_state.language = languages[selected_language_name]["code"]
-    
-    # Status indicator
+
     if st.session_state.listening:
         st.markdown('<div class="listening-indicator">Listening...</div>', unsafe_allow_html=True)
     elif st.session_state.is_processing:
         st.info("Processing... ⏳")
     else:
         st.success("Ready 🎤")
-    
-    # Voice recording control buttons
+
     col_start, col_stop = st.columns(2)
-    
     with col_start:
         if st.button("🎤 Start Talking", disabled=st.session_state.listening):
-            start_recording(api_key)
-    
+            if api_key:
+                start_recording(api_key)
+            else:
+                st.warning("Please enter your Groq API Key.")
     with col_stop:
         if st.button("🛑 Stop", disabled=not st.session_state.listening):
             stop_recording()
-    
-    # Microphone access using audio_recorder_streamlit for initial setup only
-    st.markdown("#### Or record a single message:")
+
+    st.markdown("#### Or record a single message:")  # Keep single message option
     audio_bytes = ast.audio_recorder(
         text="",
         recording_color="#e53935",
         neutral_color="#2E5BFF",
         icon_size="2x"
     )
-    
-    # Clear conversation button
+
     if st.button("🔄 Clear Conversation"):
         st.session_state.conversation = []
         st.session_state.conversation_history = []
         st.session_state.live_transcription = ""
         st.rerun()
 
-# Process recorded audio from audio_recorder if used
+# Process recorded audio from audio_recorder (single message)
 if audio_bytes and not st.session_state.listening and not st.session_state.is_processing:
-    # Set processing state
     st.session_state.is_processing = True
-    
-    # Save audio to file
     with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as tmp_file:
         tmp_file.write(audio_bytes)
         audio_file = tmp_file.name
-    
-    # Process the audio
     with st.spinner("Processing your message..."):
-        # Transcribe audio
         transcription = transcribe_with_groq(audio_file, api_key, st.session_state.language)
-        
         if transcription:
-            # Get AI response
             response = get_llama_response(transcription, api_key, st.session_state.language)
-            
-            # Generate audio response
             audio_response = text_to_speech(response, st.session_state.language)
-            
-            # Add to conversation
             timestamp = datetime.now().strftime("%H:%M:%S")
             st.session_state.conversation.append({
-                "user": transcription, 
+                "user": transcription,
                 "assistant": response,
                 "timestamp": timestamp,
-                "audio_response": audio_response
+                "audio_response": audio_response  # Store for playback
             })
-        
-        # Clean up audio file
-        if os.path.exists(audio_file):
-            os.remove(audio_file)
-    
-    # Reset processing state
+            if audio_response:
+                st.session_state.audio_queue.put(audio_response)
+                if st.session_state.playback_thread is None or not st.session_state.playback_thread.is_alive():
+                    st.session_state.playback_thread = threading.Thread(target=play_audio_responses, daemon=True)
+                    st.session_state.playback_thread.start()
+
+        os.remove(audio_file)
     st.session_state.is_processing = False
     st.rerun()
