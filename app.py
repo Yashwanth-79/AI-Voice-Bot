@@ -207,19 +207,19 @@ with col2:
                    disabled=st.session_state.recording_state == 'recording'):
             st.session_state.recording_state = 'recording'
             st.session_state.audio_bytes = None
-            st.experimental_rerun()
+            st.rerun()
     
     with col2:
         if st.button("⏹️ Stop Recording", 
                    type="primary" if st.session_state.recording_state == 'recording' else "secondary",
                    disabled=st.session_state.recording_state != 'recording'):
             st.session_state.recording_state = 'stopped'
-            st.experimental_rerun()
+            st.rerun()
     
     if st.button("🔄 Clear Conversation"):
         st.session_state.conversation = []
         st.session_state.conversation_history = []
-        st.experimental_rerun()
+        st.rerun()
     
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -364,7 +364,7 @@ if st.session_state.recording_state == 'recording':
     if audio_bytes:
         st.session_state.audio_bytes = audio_bytes
         st.session_state.recording_state = 'stopped'
-        st.experimental_rerun()
+        st.rerun()
 
 # Process recorded audio
 if st.session_state.audio_bytes and not st.session_state.is_processing:
