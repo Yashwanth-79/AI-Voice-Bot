@@ -5,9 +5,10 @@ from gtts import gTTS
 from datetime import datetime
 from groq import Groq
 import audio_recorder_streamlit as ast
+import base64
 
 # ------------------ PAGE CONFIGURATION ------------------
-st.set_page_config(page_title="AI Voice Assistant", page_icon="🎙️")
+st.set_page_config(page_title="AI Voice Assistant", page_icon="🎙️", layout="wide")
 
 
 # ------------------ CUSTOM CSS ------------------
@@ -152,8 +153,7 @@ if 'language' not in st.session_state:
     st.session_state.language = "en"
 if 'audio_data' not in st.session_state:
     st.session_state.audio_data = None
-if 'play_audio' not in st.session_state:  # Flag for audio playback
-    st.session_state.play_audio = None
+
 
 # ------------------ LANGUAGE OPTIONS ------------------
 languages = {
@@ -223,13 +223,24 @@ def text_to_speech(text, language="en"):
             with open(tmp_file.name, "rb") as f:
                 audio_bytes = f.read()
         os.remove(tmp_file.name)
-        return audio_bytes
+        return audio_bytes, tmp_file.name  # Return filename too
     except Exception as e:
         st.error(f"Error in text-to-speech: {str(e)}")
-        return None
+        return None, None
+
+def autoplay_audio(audio_bytes):
+    """Autoplays audio using HTML."""
+    b64 = base64.b64encode(audio_bytes).decode()
+    md = f"""
+        <audio controls autoplay="true">
+        <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+        </audio>
+        """
+    st.markdown(md, unsafe_allow_html=True)
+
 
 def process_audio(audio_bytes, api_key):
-    """Processes audio, gets AI response, generates audio, and plays it."""
+    """Processes audio, gets AI response, generates audio."""
     if not audio_bytes:
         return None, None, None
 
@@ -244,26 +255,23 @@ def process_audio(audio_bytes, api_key):
             return None, None, None
 
         response = get_llama_response(transcription, api_key, st.session_state.language)
-        audio_response = text_to_speech(response, st.session_state.language)
+        audio_response, audio_response_path = text_to_speech(response, st.session_state.language) # Get path
 
-        # Play audio immediately
-        if audio_response:
-            st.audio(audio_response, format="audio/mp3")
-
-        return transcription, response, audio_response
+        return transcription, response, audio_response, audio_response_path
 
     except Exception as e:
         st.error(f"Error processing audio: {e}")
-        return None, None, None
+        return None, None, None, None
     finally:
         os.remove(audio_file)
 
 # ------------------ APP LAYOUT ------------------
 
 # Header with Logo
-st.logo("https://s3-eu-west-1.amazonaws.com/tpd/logos/60d3a0bc65022800013b18b3/0x0.png")
 st.markdown("<div class='logo-container'><img src='https://s3-eu-west-1.amazonaws.com/tpd/logos/60d3a0bc65022800013b18b3/0x0.png'><h1>AI Voice Assistant</h1></div>", unsafe_allow_html=True)
+st.markdown("<h1 class='main-header'>Live AI Voice Bot</h1>", unsafe_allow_html=True)
 
+st.markdown("<p class='sub-header'>Record a message, and the AI will respond.</p>", unsafe_allow_html=True)
 
 # Main content area (using columns for layout)
 col1, col2 = st.columns([3, 1])  # Adjust column widths as needed
@@ -276,7 +284,6 @@ with col1:
         for entry in st.session_state.conversation:
             st.markdown(f'<div class="user-message">{entry["user"]}</div>', unsafe_allow_html=True)
             st.markdown(f'<div class="assistant-message">{entry["assistant"]}</div>', unsafe_allow_html=True)
-            # Audio is now played immediately after processing, so we don't need this here.
         st.markdown('</div>', unsafe_allow_html=True)
 
 with col2:
@@ -298,26 +305,22 @@ with col2:
     if audio_bytes and st.session_state.audio_data != audio_bytes:
         st.session_state.audio_data = audio_bytes
         with st.spinner("Processing your message..."):
-            transcription, response, audio_response = process_audio(audio_bytes, api_key)
+            transcription, response, audio_response, audio_response_path = process_audio(audio_bytes, api_key)
             if transcription and response and audio_response:
                 st.session_state.conversation.append({
                     "user": transcription,
                     "assistant": response,
-                    "audio_response": audio_response
+                    "audio_response": audio_response  # Store for potential later use (or display)
                 })
-                st.session_state.play_audio = audio_response  # Set audio to play
+                autoplay_audio(audio_response) # Play the audio!
+
         st.rerun()
 
     if st.button("🔄 Clear Conversation"):
         st.session_state.conversation = []
         st.session_state.audio_data = None
-        st.session_state.play_audio = None  # Clear audio
         st.rerun()
 
-# Conditionally play audio *outside* of processing
-if st.session_state.play_audio:
-    st.audio(st.session_state.play_audio, format="audio/mp3")
-    st.session_state.play_audio = None  # Reset after playing
 
 # Footer
 st.markdown("<div class='footer'>© 2024 Home.LLC | <a href='https://www.home.llc/'>Visit our website</a></div>", unsafe_allow_html=True)
