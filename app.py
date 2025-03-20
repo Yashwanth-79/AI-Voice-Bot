@@ -7,7 +7,7 @@ from groq import Groq
 import audio_recorder_streamlit as ast
 
 # ------------------ PAGE CONFIGURATION ------------------
-st.set_page_config(page_title="AI Voice Assistant", page_icon="🎙️", layout="wide")
+st.set_page_config(page_title="AI Voice Assistant", page_icon="🎙️")
 
 
 # ------------------ CUSTOM CSS ------------------
