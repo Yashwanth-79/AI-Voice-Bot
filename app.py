@@ -290,7 +290,7 @@ with col1:
 with col2:
     st.subheader("Controls")
     api_key = st.text_input("Groq API Key", type="password")
-    st.link_button(label = "Get API Here",url ="https://console.groq.com/playground"
+    st.link_button(label = "Get API Here",url ="https://console.groq.com/playground")
     language_options = [f"{data['flag']} {name}" for name, data in languages.items()]
     selected_language = st.selectbox("Select Language", language_options, index=0)
     selected_language_name = selected_language.split(" ", 1)[1]
