@@ -211,14 +211,14 @@ def get_llama_response(question, api_key, language="en"):
         client = init_groq_client(api_key)
         language_name = next((name for name, data in languages.items() if data["code"] == language), "English")
         system_prompt = f"""
-            You are an engaging and expressive AI voice assistant, designed to provide natural and fluid spoken responses in {language_name}.
+            You are a highly engaging and expressive AI voice assistant, designed to provide natural and fluid spoken responses in {language_name}.
             Your responses should be:
-            - **Concise and small**: Keep answers brief but meaningful.
+            - **Concise**: Keep answers brief but meaningful.
             - **Conversational**: Sound natural, as if speaking to a human.
             - **Insightful**: Offer thoughtful and relevant responses.
             - **Expressive**: Adapt tone to match the context of the question.
             You will be asked general and reflective questions: Answer such questions politefully
-            Always respond in a way that is clear, as the question is necessary, engaging, and easy to understand when spoken aloud. wrap it up short within 145 tokens
+            Always respond in a way that is clear, as the question is necessary, engaging, and easy to understand when spoken aloud.
             """
 
         messages = [{"role": "system", "content": system_prompt},
@@ -276,15 +276,16 @@ def process_audio(audio_bytes, api_key):
         os.remove(audio_file)
 
 # ------------------ APP LAYOUT ------------------
-st.logo("https://s3-eu-west-1.amazonaws.com/tpd/logos/60d3a0bc65022800013b18b3/0x0.png")
+
 # Header with Logo
+st.logo("https://s3-eu-west-1.amazonaws.com/tpd/logos/60d3a0bc65022800013b18b3/0x0.png")
 st.markdown("<div class='logo-container'><img src='https://s3-eu-west-1.amazonaws.com/tpd/logos/60d3a0bc65022800013b18b3/0x0.png'><h1>AI Voice Assistant</h1></div>", unsafe_allow_html=True)
 
 # Main content area
 col1, col2 = st.columns([3, 1])
 
 with col1:
-    st.subheader("Conversation: ")
+    st.subheader("Conversation")
     with st.container():
         st.markdown('<div class="conversation-container">', unsafe_allow_html=True)
         for entry in st.session_state.conversation:
@@ -301,17 +302,29 @@ with col2:
     selected_language_name = selected_language.split(" ", 1)[1]
     st.session_state.language = languages[selected_language_name]["code"]
 
+    # Use columns for Start/Stop buttons
+    col_rec, col_stop = st.columns([1,1])
+    with col_rec:
+        if st.button("🎤 Start Recording", disabled=st.session_state.recording):
+            st.session_state.recording = True
+            st.session_state.audio_data = None  # Clear previous data
+            st.rerun()
 
-    
-    audio_bytes = ast.audio_recorder(
-        text="Click and starting saying",  # No text needed when recording
-        recording_color="#e53935",
-        neutral_color="#2E5BFF",
-        icon_size="2x",
-        key="audio_recorder"  # Add a key
-    )
-    if audio_bytes and st.session_state.audio_data != audio_bytes:
-        st.session_state.audio_data = audio_bytes
+    # with col_stop:
+    #     if st.button("🛑 Stop Recording", disabled=not st.session_state.recording):
+    #         st.session_state.recording = False
+            # st.rerun()  # Don't rerun here; process audio first
+
+    if st.session_state.recording:
+        audio_bytes = ast.audio_recorder(
+            text="Click and Say",  # No text needed when recording
+            recording_color="#e53935",
+            neutral_color="#2E5BFF",
+            icon_size="2x",
+            key="audio_recorder"  # Add a key
+        )
+        if audio_bytes and st.session_state.audio_data != audio_bytes:
+            st.session_state.audio_data = audio_bytes
 
 
     if st.session_state.audio_data and not st.session_state.recording:
