@@ -302,7 +302,7 @@ with col2:
     st.session_state.language = languages[selected_language_name]["code"]
 
     # Use columns for Start/Stop buttons
-    col_rec, col_stop = st.columns([1,1])
+    #col_rec, col_stop = st.columns([1,1])
     # with col_rec:
     #     if st.button("🎤 Start Recording",disabled=st.session_state.recording):
     #         st.session_state.recording = True
