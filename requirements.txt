@@ -25,3 +25,8 @@ psycopg2-binary
 Pillow
 python-dateutil
 langdetect
+SpeechRecognition
+gtts 
+playsound 
+pyaudio 
+groq
