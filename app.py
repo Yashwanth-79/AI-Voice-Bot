@@ -1,20 +1,18 @@
 import os
-import time
-import queue
 import tempfile
-import threading
 import streamlit as st
-import speech_recognition as sr
+import audio_recorder_streamlit as ast
 from gtts import gTTS
 from playsound import playsound
 from groq import Groq
+from deep_translator import GoogleTranslator
 import base64
 from datetime import datetime
 import io
 
 # Page configuration
 st.set_page_config(
-    page_title="Voice Assistant",
+    page_title="AI Voice Assistant",
     page_icon="🎙️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -100,30 +98,33 @@ st.markdown("""
         width: 180px;
         margin-bottom: 1rem;
     }
+    .recording-status {
+        padding: 0.5rem;
+        margin: 0.5rem 0;
+        border-radius: 5px;
+        text-align: center;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # Initialize session state
 if 'conversation' not in st.session_state:
     st.session_state.conversation = []
-if 'is_listening' not in st.session_state:
-    st.session_state.is_listening = False
-if 'is_speaking' not in st.session_state:
-    st.session_state.is_speaking = False
+if 'is_processing' not in st.session_state:
+    st.session_state.is_processing = False
 if 'language' not in st.session_state:
     st.session_state.language = "en"
 if 'conversation_history' not in st.session_state:
     st.session_state.conversation_history = []
-
-# Audio queue for processing
-if 'audio_queue' not in st.session_state:
-    st.session_state.audio_queue = queue.Queue()
+if 'recording_state' not in st.session_state:
+    st.session_state.recording_state = 'stopped'
+if 'audio_bytes' not in st.session_state:
+    st.session_state.audio_bytes = None
 
 # Header with logo
 st.markdown("""
 <div class="logo-container">
-    <img src="https://s3-eu-west-1.amazonaws.com/tpd/logos/60d3a0bc65022800013b18b3/0x0.png" class="logo">
-    <h1 class="main-header">Voice Assistant</h1>
+    <h1 class="main-header">AI Voice Assistant</h1>
     <p class="sub-header">Your AI-powered multilingual voice companion</p>
 </div>
 """, unsafe_allow_html=True)
@@ -145,7 +146,7 @@ with st.sidebar:
         "Portuguese": "pt",
         "Russian": "ru",
         "Japanese": "ja",
-        "Chinese": "zh",
+        "Chinese": "zh-CN",
         "Hindi": "hi",
         "Arabic": "ar",
         "Korean": "ko"
@@ -153,10 +154,6 @@ with st.sidebar:
     
     language_name = st.selectbox("Select Language", list(languages.keys()))
     st.session_state.language = languages[language_name]
-    
-    # Microphone sensitivity
-    mic_sensitivity = st.slider("Microphone Sensitivity", min_value=300, max_value=6000, value=4000, step=100)
-    pause_threshold = st.slider("Pause Threshold", min_value=0.1, max_value=2.0, value=0.8, step=0.1)
     
     # Download conversation
     if st.button("Download Conversation"):
@@ -181,16 +178,13 @@ with col1:
     # Conversation display
     st.markdown("<h3>Conversation</h3>", unsafe_allow_html=True)
     
-    conversation_container = st.empty()
+    conversation_container = st.container()
     
-    # Display conversation
-    conversation_html = '<div class="conversation-container">'
-    for entry in st.session_state.conversation:
-        conversation_html += f'<div class="user-message">{entry["user"]}</div>'
-        conversation_html += f'<div class="assistant-message">{entry["assistant"]}</div>'
-    conversation_html += '</div>'
-    
-    conversation_container.markdown(conversation_html, unsafe_allow_html=True)
+    with conversation_container:
+        # Display conversation
+        for entry in st.session_state.conversation:
+            st.markdown(f'<div class="user-message">{entry["user"]}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="assistant-message">{entry["assistant"]}</div>', unsafe_allow_html=True)
 
 with col2:
     # Controls
@@ -198,34 +192,36 @@ with col2:
     
     status_container = st.empty()
     
-    if st.session_state.is_listening:
-        status_container.markdown('<p class="status-listening">Listening...</p>', unsafe_allow_html=True)
-    elif st.session_state.is_speaking:
-        status_container.markdown('<p class="status-processing">Speaking...</p>', unsafe_allow_html=True)
+    if st.session_state.recording_state == 'recording':
+        status_container.markdown('<p class="status-listening">Recording...</p>', unsafe_allow_html=True)
+    elif st.session_state.is_processing:
+        status_container.markdown('<p class="status-processing">Processing...</p>', unsafe_allow_html=True)
     else:
         status_container.markdown('<p>Ready</p>', unsafe_allow_html=True)
     
-    if st.button("Start Listening"):
-        st.session_state.is_listening = True
-        status_container.markdown('<p class="status-listening">Listening...</p>', unsafe_allow_html=True)
+    col1, col2 = st.columns(2)
     
-    if st.button("Stop Listening"):
-        st.session_state.is_listening = False
-        status_container.markdown('<p>Ready</p>', unsafe_allow_html=True)
+    with col1:
+        if st.button("🎙️ Start Recording", 
+                   type="primary" if st.session_state.recording_state != 'recording' else "secondary",
+                   disabled=st.session_state.recording_state == 'recording'):
+            st.session_state.recording_state = 'recording'
+            st.session_state.audio_bytes = None
+            st.experimental_rerun()
     
-    if st.button("Clear Conversation"):
+    with col2:
+        if st.button("⏹️ Stop Recording", 
+                   type="primary" if st.session_state.recording_state == 'recording' else "secondary",
+                   disabled=st.session_state.recording_state != 'recording'):
+            st.session_state.recording_state = 'stopped'
+            st.experimental_rerun()
+    
+    if st.button("🔄 Clear Conversation"):
         st.session_state.conversation = []
         st.session_state.conversation_history = []
-        conversation_container.markdown('<div class="conversation-container"></div>', unsafe_allow_html=True)
+        st.experimental_rerun()
     
     st.markdown('</div>', unsafe_allow_html=True)
-
-# Footer
-st.markdown("""
-<div class="footer">
-    <p>© 2025 Voice Assistant | Powered by Groq, Whisper, and Streamlit</p>
-</div>
-""", unsafe_allow_html=True)
 
 # --------------------- VOICE ASSISTANT FUNCTIONS ---------------------
 
@@ -289,12 +285,25 @@ def get_llama_response(question, language="en"):
         st.error(f"Error calling Groq API: {str(e)}")
         return "I encountered an error while responding."
 
-def speak_text(text, language="en"):
-    """Convert text to speech and play it"""
+def translate_text(text, target_language="en"):
+    """Translate text using Google Translator"""
     try:
-        st.session_state.is_speaking = True
-        
-        # Create a temporary file for the audio
+        translator = GoogleTranslator(source='auto', target=target_language)
+        translated_text = translator.translate(text)
+        return translated_text
+    except Exception as e:
+        st.error(f"Error in translation: {str(e)}")
+        return text
+
+def save_audio_to_file(audio_bytes):
+    """Save audio bytes to a temporary file"""
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as tmp_file:
+        tmp_file.write(audio_bytes)
+        return tmp_file.name
+
+def text_to_speech(text, language="en"):
+    """Convert text to speech and return audio file path"""
+    try:
         with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
             tts_filename = tmp_file.name
         
@@ -302,120 +311,84 @@ def speak_text(text, language="en"):
         tts = gTTS(text=text, lang=language, slow=False)
         tts.save(tts_filename)
         
-        # Play the audio
-        playsound(tts_filename)
-        
-        # Clean up the temporary file
-        if os.path.exists(tts_filename):
-            os.remove(tts_filename)
-            
+        return tts_filename
     except Exception as e:
         st.error(f"Error in text-to-speech: {str(e)}")
+        return None
+
+def process_audio(audio_bytes):
+    """Process audio bytes through the voice assistant pipeline"""
+    st.session_state.is_processing = True
+    
+    try:
+        # Save audio to file
+        audio_file = save_audio_to_file(audio_bytes)
+        
+        # Transcribe audio
+        transcription = transcribe_with_groq(audio_file, st.session_state.language)
+        
+        if not transcription:
+            st.warning("No speech detected or transcription failed")
+            return
+        
+        # Get AI response
+        response = get_llama_response(transcription, st.session_state.language)
+        
+        # Add to conversation display
+        st.session_state.conversation.append({"user": transcription, "assistant": response})
+        
+        # Generate audio response
+        audio_response = text_to_speech(response, st.session_state.language)
+        
+        # Clean up audio file
+        if os.path.exists(audio_file):
+            os.remove(audio_file)
+        
+        return audio_response
+    
+    except Exception as e:
+        st.error(f"Error processing audio: {str(e)}")
+        return None
+    
     finally:
-        st.session_state.is_speaking = False
+        st.session_state.is_processing = False
 
-def save_audio_data(audio_data):
-    """Save audio data to a temporary file and return the filename"""
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as tmp_file:
-        temp_filename = tmp_file.name
-    
-    with open(temp_filename, "wb") as f:
-        f.write(audio_data.get_wav_data())
-    
-    return temp_filename
+# --------------------- AUDIO RECORDING SECTION ---------------------
 
-def process_audio_file(audio_file):
-    """Process an audio file through the entire pipeline"""
-    # Step 1: Transcribe the audio
-    transcription = transcribe_with_groq(audio_file, st.session_state.language)
+if st.session_state.recording_state == 'recording':
+    st.markdown("""<div class="recording-status" style="background-color: #ff4b4b; color: white;"> Recording in progress... 🎙️ </div>""", unsafe_allow_html=True)
     
-    if not transcription:
-        st.warning("No speech detected or transcription failed")
-        return
+    # Use audio_recorder_streamlit to record audio
+    audio_bytes = ast.audio_recorder(pause_threshold=2.0, sample_rate=44100)
     
-    # Step 2: Get AI response
-    response = get_llama_response(transcription, st.session_state.language)
-    
-    # Step 3: Add to conversation display
-    st.session_state.conversation.append({"user": transcription, "assistant": response})
-    
-    # Update conversation display
-    conversation_html = '<div class="conversation-container">'
-    for entry in st.session_state.conversation:
-        conversation_html += f'<div class="user-message">{entry["user"]}</div>'
-        conversation_html += f'<div class="assistant-message">{entry["assistant"]}</div>'
-    conversation_html += '</div>'
-    
-    conversation_container.markdown(conversation_html, unsafe_allow_html=True)
-    
-    # Step 4: Speak the response
-    speak_text(response, st.session_state.language)
+    if audio_bytes:
+        st.session_state.audio_bytes = audio_bytes
+        st.session_state.recording_state = 'stopped'
+        st.experimental_rerun()
 
-def audio_processor_thread():
-    """Background thread to process audio from the queue"""
-    while True:
-        if not st.session_state.audio_queue.empty():
-            audio_data = st.session_state.audio_queue.get()
-            if audio_data is None:  # None is our signal to exit
-                break
-                
-            try:
-                # Save the audio data to a temporary file
-                temp_filename = save_audio_data(audio_data)
-                
-                # Process the audio file
-                process_audio_file(temp_filename)
-                
-                # Clean up
-                if os.path.exists(temp_filename):
-                    os.remove(temp_filename)
-                    
-            except Exception as e:
-                st.error(f"Error processing audio: {str(e)}")
+# Process recorded audio
+if st.session_state.audio_bytes and not st.session_state.is_processing:
+    # Display the recorded audio
+    st.audio(st.session_state.audio_bytes, format="audio/wav")
+    
+    # Process the audio
+    with st.spinner("Processing your message..."):
+        audio_response = process_audio(st.session_state.audio_bytes)
+        
+        if audio_response:
+            # Play the audio response
+            st.audio(audio_response, format="audio/mp3")
             
-            # Mark the task as done
-            st.session_state.audio_queue.task_done()
-        
-        # Sleep to avoid consuming too much CPU
-        time.sleep(0.1)
-
-def callback(recognizer, audio):
-    """Callback function for when audio is detected"""
-    # If we're currently speaking or not listening, don't process this audio
-    if st.session_state.is_speaking or not st.session_state.is_listening:
-        return
-        
-    st.session_state.audio_queue.put(audio)
-
-# --------------------- MAIN APP LOGIC ---------------------
-
-def main():
-    # Initialize recognizer and microphone
-    recognizer = sr.Recognizer()
-    microphone = sr.Microphone()
+            # Clean up the audio response file
+            if os.path.exists(audio_response):
+                os.remove(audio_response)
     
-    # Start the audio processor thread
-    if 'processor_thread' not in st.session_state:
-        st.session_state.processor_thread = threading.Thread(target=audio_processor_thread)
-        st.session_state.processor_thread.daemon = True
-        st.session_state.processor_thread.start()
-    
-    # Set the speech energy threshold for better detection
-    recognizer.energy_threshold = mic_sensitivity
-    recognizer.dynamic_energy_threshold = True
-    recognizer.pause_threshold = pause_threshold
-    
-    # Set up the microphone and start listening if needed
-    if st.session_state.is_listening and 'stop_listening' not in st.session_state:
-        with microphone as source:
-            recognizer.adjust_for_ambient_noise(source, duration=1)
-        
-        st.session_state.stop_listening = recognizer.listen_in_background(microphone, callback)
-    
-    # Stop listening if needed
-    if not st.session_state.is_listening and 'stop_listening' in st.session_state:
-        st.session_state.stop_listening(wait_for_stop=False)
-        del st.session_state.stop_listening
+    # Clear the audio bytes to prevent reprocessing
+    st.session_state.audio_bytes = None
 
-if __name__ == "__main__":
-    main()
+# Footer
+st.markdown("""
+<div class="footer">
+    <p>© 2025 AI Voice Assistant | Powered by Groq, Whisper, and Streamlit</p>
+</div>
+""", unsafe_allow_html=True)
