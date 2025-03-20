@@ -141,6 +141,39 @@ st.markdown("""
         max-height: 50px; /* Adjust as needed */
         margin-right: 1rem;
     }
+    
+    /* Recording controls */
+    .recording-controls {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 15px;
+    }
+    
+    .stop-button {
+        background-color: #e53935;
+        color: white;
+        border: none;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    
+    .stop-button:hover {
+        background-color: #c62828;
+        transform: scale(1.05);
+    }
+    
+    .stop-icon {
+        width: 16px;
+        height: 16px;
+        background-color: white;
+    }
 
 </style>
 """, unsafe_allow_html=True)
@@ -154,6 +187,8 @@ if 'audio_data' not in st.session_state:
     st.session_state.audio_data = None
 if 'audio_to_autoplay' not in st.session_state:
     st.session_state.audio_to_autoplay = None
+if 'is_recording' not in st.session_state:
+    st.session_state.is_recording = False
 
 # ------------------ LANGUAGE OPTIONS ------------------
 languages = {
@@ -173,13 +208,14 @@ def init_groq_client(api_key):
 
 def autoplay_audio(audio_bytes):
     """Function to auto-play audio using HTML audio tag with autoplay attribute"""
-    b64 = base64.b64encode(audio_bytes).decode()
-    md = f"""
-        <audio controls autoplay="true">
-        <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
-        </audio>
-        """
-    st.markdown(md, unsafe_allow_html=True)
+    if audio_bytes:
+        b64 = base64.b64encode(audio_bytes).decode()
+        md = f"""
+            <audio controls autoplay="true">
+            <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+            </audio>
+            """
+        st.markdown(md, unsafe_allow_html=True)
 
 def transcribe_with_groq(audio_path, api_key, language="en"):
     try:
@@ -277,37 +313,71 @@ with col1:
     conversation_container = st.container()
     with conversation_container:
         st.markdown('<div class="conversation-container">', unsafe_allow_html=True)
-        for entry in st.session_state.conversation:
+        for i, entry in enumerate(st.session_state.conversation):
             st.markdown(f'<div class="user-message">{entry["user"]}</div>', unsafe_allow_html=True)
             st.markdown(f'<div class="assistant-message">{entry["assistant"]}</div>', unsafe_allow_html=True)
+            
+            # Create a unique key for each audio entry
+            audio_key = f"audio_{i}"
+            if "audio_response" in entry and entry["audio_response"]:
+                # Each conversation entry gets its own autoplay audio
+                st.markdown(f"<div id='{audio_key}'>", unsafe_allow_html=True)
+                b64 = base64.b64encode(entry["audio_response"]).decode()
+                md = f"""
+                    <audio controls autoplay="true">
+                    <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+                    </audio>
+                    """
+                st.markdown(md, unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+                
         st.markdown('</div>', unsafe_allow_html=True)
 
 with col2:
     st.subheader("Controls")
     api_key = st.text_input("Groq API Key", type="password")
-    st.link_button(label = "Get API Here", url ="https://console.groq.com/playground")
+    st.link_button(label="Get API Here", url="https://console.groq.com/playground")
     language_options = [f"{data['flag']} {name}" for name, data in languages.items()]
     selected_language = st.selectbox("Select Language", language_options, index=0)
     selected_language_name = selected_language.split(" ", 1)[1]
     st.session_state.language = languages[selected_language_name]["code"]
 
-    audio_bytes = ast.audio_recorder(
-        text="Click to record",
-        recording_color="#e53935",
-        neutral_color="#2E5BFF",
-        icon_size="2x"
-    )
+    # Recording controls with Stop button
+    st.markdown("<div class='recording-controls'>", unsafe_allow_html=True)
+    
+    # Start recording button
+    col_rec1, col_rec2 = st.columns([3, 1])
+    with col_rec1:
+        audio_bytes = ast.audio_recorder(
+            text="Click to record",
+            recording_color="#e53935",
+            neutral_color="#2E5BFF",
+            icon_size="2x",
+            pause_threshold=120.0,  # Long pause threshold to allow stopping manually
+            recording_callback=lambda: setattr(st.session_state, 'is_recording', True),
+            stopped_callback=lambda: setattr(st.session_state, 'is_recording', False)
+        )
+    
+    with col_rec2:
+        # Stop button
+        if st.button("⏹️ Stop", key="stop_recording"):
+            st.session_state.is_recording = False
+            st.rerun()
+    
+    st.markdown("</div>", unsafe_allow_html=True)
 
     if audio_bytes and st.session_state.audio_data != audio_bytes:
         st.session_state.audio_data = audio_bytes
         with st.spinner("Processing your message..."):
             transcription, response, audio_response = process_audio(audio_bytes, api_key)
             if transcription and response and audio_response:
+                # Add to conversation history with audio response
                 st.session_state.conversation.append({
                     "user": transcription,
                     "assistant": response,
                     "audio_response": audio_response
                 })
+                # Set the audio to autoplay only for the most recent conversation
                 st.session_state.audio_to_autoplay = audio_response
         st.rerun()
 
@@ -317,11 +387,10 @@ with col2:
         st.session_state.audio_to_autoplay = None
         st.rerun()
 
-# Auto-play audio if available
+# Auto-play most recent audio if available 
+# (This is a backup and may not be necessary with the in-conversation autoplays)
 if st.session_state.audio_to_autoplay:
     autoplay_audio(st.session_state.audio_to_autoplay)
-    # Also provide a regular audio player as fallback
-    st.audio(st.session_state.audio_to_autoplay, format="audio/mp3")
     st.session_state.audio_to_autoplay = None  # Reset after playing
 
 # Footer
