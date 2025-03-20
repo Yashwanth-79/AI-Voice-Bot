@@ -152,6 +152,8 @@ if 'language' not in st.session_state:
     st.session_state.language = "en"
 if 'audio_data' not in st.session_state:
     st.session_state.audio_data = None
+if 'play_audio' not in st.session_state:  # Flag for audio playback
+    st.session_state.play_audio = None
 
 # ------------------ LANGUAGE OPTIONS ------------------
 languages = {
@@ -297,18 +299,25 @@ with col2:
         st.session_state.audio_data = audio_bytes
         with st.spinner("Processing your message..."):
             transcription, response, audio_response = process_audio(audio_bytes, api_key)
-            if transcription and response:  # Only add to conversation if successful
+            if transcription and response and audio_response:
                 st.session_state.conversation.append({
                     "user": transcription,
                     "assistant": response,
-                    "audio_response": audio_response  # Still store for potential later use
+                    "audio_response": audio_response
                 })
+                st.session_state.play_audio = audio_response  # Set audio to play
         st.rerun()
 
     if st.button("🔄 Clear Conversation"):
         st.session_state.conversation = []
         st.session_state.audio_data = None
+        st.session_state.play_audio = None  # Clear audio
         st.rerun()
+
+# Conditionally play audio *outside* of processing
+if st.session_state.play_audio:
+    st.audio(st.session_state.play_audio, format="audio/mp3")
+    st.session_state.play_audio = None  # Reset after playing
 
 # Footer
 st.markdown("<div class='footer'>© 2024 Home.LLC | <a href='https://www.home.llc/'>Visit our website</a></div>", unsafe_allow_html=True)
