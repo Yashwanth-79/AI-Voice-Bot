@@ -304,9 +304,7 @@ with col2:
 
     # Use the audio_recorder component directly, controlling start/stop with its returned value.
     audio_bytes = ast.audio_recorder(
-        start_prompt="⏺️ Start Recording",  # Custom start prompt
-        stop_prompt="⏹️ Stop Recording",  # Custom stop prompt
-        text="",
+        text="Click and Say",
         recording_color="#e53935",
         neutral_color="#2E5BFF",
         icon_size="2x",
