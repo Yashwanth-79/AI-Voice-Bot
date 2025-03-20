@@ -7,24 +7,35 @@ from groq import Groq
 import audio_recorder_streamlit as ast
 
 # ------------------ PAGE CONFIGURATION ------------------
-st.set_page_config(page_title="AI Voice Assistant", page_icon="🎙️")
+st.set_page_config(page_title="AI Voice Assistant", page_icon="🎙️", layout="wide")
+
 
 # ------------------ CUSTOM CSS ------------------
 st.markdown("""
 <style>
-    /* ... (Your existing CSS, no changes needed) ... */
-     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
     
     * {
         font-family: 'Poppins', sans-serif;
     }
     
+    /* Main container styling */
+    .stApp {
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+    }
+
+    /* Header styling */
     .main-header {
         font-size: 2.5rem;
         font-weight: 700;
         color: #2E5BFF;
         margin-bottom: 0;
         text-align: center;
+        padding: 1rem 0;
+        background-color: #f0f2f6; /* Light background for header */
+        border-bottom: 2px solid #2E5BFF; /* Blue border */
     }
     
     .sub-header {
@@ -34,6 +45,14 @@ st.markdown("""
         margin-bottom: 2rem;
         text-align: center;
         font-weight: 300;
+    }
+
+    /* Content area */
+    .content-area {
+        flex-grow: 1; /* Takes up remaining space */
+        display: flex; /* Use flexbox for layout */
+        flex-direction: row; /* Columns */
+        padding: 2rem;
     }
     
     .conversation-container {
@@ -71,22 +90,10 @@ st.markdown("""
         margin-top: 4px;
     }
     
-    .live-transcription {
-        background-color: #E8F5E9;
-        padding: 0.8rem;
-        border-radius: 15px;
-        margin-bottom: 1rem;
-        width: fit-content;
-        max-width: 80%;
-        margin-left: auto;
-        font-style: italic;
-        border: 1px dashed #81C784;
-    }
-    
     /* Hide Streamlit branding */
     #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    
+    /* footer {visibility: hidden;}  Hide default footer */
+
     /* Scrollbar styling */
     .conversation-container::-webkit-scrollbar {
         width: 6px;
@@ -116,29 +123,34 @@ st.markdown("""
         background-color: #1E3FB3;
         transform: translateY(-2px);
     }
-    
-    /* Listening indicator */
-    .listening-indicator {
-        display: inline-block;
-        padding: 5px 15px;
-        background-color: #ef5350;
+
+    /* Custom Footer */
+    .footer {
+        background-color: #2E5BFF;
         color: white;
-        border-radius: 20px;
-        font-weight: 500;
-        animation: pulse 1.5s infinite;
+        text-align: center;
+        padding: 1rem 0;
+        width: 100%;
     }
-    
-    @keyframes pulse {
-        0% {
-            opacity: 1;
-        }
-        50% {
-            opacity: 0.5;
-        }
-        100% {
-            opacity: 1;
-        }
+    .footer a {
+        color: white;
+        text-decoration: none;
+        font-weight: bold;
     }
+    .footer a:hover {
+        text-decoration: underline;
+    }
+    .logo-container {
+        display: flex;
+        justify-content: center; /* Center horizontally */
+        align-items: center;     /* Center vertically */
+        padding: 1rem;
+    }
+    .logo-container img {
+        max-height: 50px; /* Adjust as needed */
+        margin-right: 1rem;
+    }
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -185,15 +197,13 @@ def get_llama_response(question, api_key, language="en"):
         client = init_groq_client(api_key)
         language_name = next((name for name, data in languages.items() if data["code"] == language), "English")
         system_prompt = f"""
-            You are a highly engaging and expressive AI voice assistant, designed to provide natural and fluid spoken responses in {language_name}.  
-            Your responses should be:  
-            - **Concise**: Keep answers brief but meaningful.  
-            - **Conversational**: Sound natural, as if speaking to a human.  
-            - **Insightful**: Offer thoughtful and relevant responses.  
-            - **Expressive**: Adapt tone to match the context of the question.  
-            
+            You are a highly engaging and expressive AI voice assistant, designed to provide natural and fluid spoken responses in {language_name}.
+            Your responses should be:
+            - **Concise**: Keep answers brief but meaningful.
+            - **Conversational**: Sound natural, as if speaking to a human.
+            - **Insightful**: Offer thoughtful and relevant responses.
+            - **Expressive**: Adapt tone to match the context of the question.
             You will be asked general and reflective questions: Answer such questions politefully
-            
             Always respond in a way that is clear,as the question is necessary, engaging, and easy to understand when spoken aloud.
             """
 
@@ -202,7 +212,8 @@ def get_llama_response(question, api_key, language="en"):
         completion = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=messages,
-            temperature=0.5,
+            temperature=0.5,  # Adjusted for more focused responses
+            max_tokens=150,
             top_p=1,
             stream=False
         )
@@ -225,9 +236,9 @@ def text_to_speech(text, language="en"):
         return None
 
 def process_audio(audio_bytes, api_key):
-    """Processes a single audio message, gets AI response, and generates audio."""
+    """Processes audio, gets AI response, generates audio, and plays it."""
     if not audio_bytes:
-        return
+        return None, None, None
 
     with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as tmp_file:
         tmp_file.write(audio_bytes)
@@ -237,10 +248,14 @@ def process_audio(audio_bytes, api_key):
         transcription = transcribe_with_groq(audio_file, api_key, st.session_state.language)
         if not transcription:
             st.warning("No speech detected or transcription failed")
-            return None, None
+            return None, None, None
 
         response = get_llama_response(transcription, api_key, st.session_state.language)
         audio_response = text_to_speech(response, st.session_state.language)
+
+        # Play audio immediately
+        if audio_response:
+            st.audio(audio_response, format="audio/mp3")
 
         return transcription, response, audio_response
 
@@ -251,10 +266,15 @@ def process_audio(audio_bytes, api_key):
         os.remove(audio_file)
 
 # ------------------ APP LAYOUT ------------------
-st.markdown("<h1 class='main-header'>AI Voice Assistant</h1>", unsafe_allow_html=True)
+
+# Header with Logo
+st.markdown("<div class='logo-container'><img src='https://s3-eu-west-1.amazonaws.com/tpd/logos/60d3a0bc65022800013b18b3/0x0.png'><h1>AI Voice Assistant</h1></div>", unsafe_allow_html=True)
+st.markdown("<h1 class='main-header'>Live AI Voice Bot</h1>", unsafe_allow_html=True)
+
 st.markdown("<p class='sub-header'>Record a message, and the AI will respond.</p>", unsafe_allow_html=True)
 
-col1, col2 = st.columns([3, 1])
+# Main content area (using columns for layout)
+col1, col2 = st.columns([3, 1])  # Adjust column widths as needed
 
 with col1:
     st.subheader("Conversation")
@@ -264,13 +284,13 @@ with col1:
         for entry in st.session_state.conversation:
             st.markdown(f'<div class="user-message">{entry["user"]}</div>', unsafe_allow_html=True)
             st.markdown(f'<div class="assistant-message">{entry["assistant"]}</div>', unsafe_allow_html=True)
-            if "audio_response" in entry:
-                st.audio(entry["audio_response"], format="audio/mp3")  # Play audio
+            # Audio is now played immediately after processing, so we don't need this here.
         st.markdown('</div>', unsafe_allow_html=True)
 
 with col2:
     st.subheader("Controls")
     api_key = st.text_input("Groq API Key", type="password")
+    st.link_button(label = "Get API Here",url ="https://console.groq.com/playground"
     language_options = [f"{data['flag']} {name}" for name, data in languages.items()]
     selected_language = st.selectbox("Select Language", language_options, index=0)
     selected_language_name = selected_language.split(" ", 1)[1]
@@ -284,18 +304,21 @@ with col2:
     )
 
     if audio_bytes and st.session_state.audio_data != audio_bytes:
-        st.session_state.audio_data = audio_bytes  # Only update on new recording
+        st.session_state.audio_data = audio_bytes
         with st.spinner("Processing your message..."):
             transcription, response, audio_response = process_audio(audio_bytes, api_key)
-            if transcription and response and audio_response:
+            if transcription and response:  # Only add to conversation if successful
                 st.session_state.conversation.append({
                     "user": transcription,
                     "assistant": response,
-                    "audio_response": audio_response
+                    "audio_response": audio_response  # Still store for potential later use
                 })
-        st.rerun()  # Rerun after processing
+        st.rerun()
 
     if st.button("🔄 Clear Conversation"):
         st.session_state.conversation = []
-        st.session_state.audio_data = None  # Reset audio data
+        st.session_state.audio_data = None
         st.rerun()
+
+# Footer
+st.markdown("<div class='footer'>© 2024 Home.LLC | <a href='https://www.home.llc/'>Visit our website</a></div>", unsafe_allow_html=True)
