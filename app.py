@@ -116,6 +116,18 @@ st.markdown("""
         transform: translateY(-2px);
     }
 
+     /* Primary and secondary button styles */
+    .stButton[data-baseweb="button"] > button[kind="primary"] {
+        background-color: #2E5BFF; /* Your primary color */
+        color: white;
+    }
+    .stButton[data-baseweb="button"] > button[kind="secondary"] {
+        background-color: #f0f2f6; /* Light gray or your secondary color */
+        color: #2E5BFF;
+        border: 1px solid #2E5BFF;
+    }
+
+
     /* Custom Footer */
     .footer {
         background-color: #2E5BFF;
@@ -161,10 +173,14 @@ if 'language' not in st.session_state:
     st.session_state.language = "en"
 if 'audio_data' not in st.session_state:
     st.session_state.audio_data = None
-if 'recording' not in st.session_state:  # Track recording state
-    st.session_state.recording = False
+if 'recording_state' not in st.session_state:  # Use a string to represent state
+    st.session_state.recording_state = 'idle'  # 'idle', 'recording', 'stopped'
 if 'audio_to_autoplay' not in st.session_state:
     st.session_state.audio_to_autoplay = None
+if 'language_error' not in st.session_state:
+    st.session_state.language_error = False
+if 'error_message' not in st.session_state:
+    st.session_state.error_message = ""
 
 # ------------------ LANGUAGE OPTIONS ------------------
 languages = {
@@ -211,15 +227,15 @@ def get_llama_response(question, api_key, language="en"):
         client = init_groq_client(api_key)
         language_name = next((name for name, data in languages.items() if data["code"] == language), "English")
         system_prompt = f"""
-            You are an engaging and expressive AI voice assistant, designed to provide natural and fluid spoken responses in {language_name}.
-            Your responses should be:
-            - **Concise and short**: Keep answers brief but meaningful.
-            - **Conversational**: Sound natural, as if speaking to a human.
-            - **Insightful**: Offer thoughtful and relevant responses.
-            - **Expressive**: Adapt tone to match the context of the question.
-            You will be asked general and reflective questions: Answer such questions politefully
-            Always respond in a way that is clear, as the question is necessary, engaging, and easy to understand when spoken aloud. In short and specific on to point !
-            """
+                        You are an engaging and expressive AI voice assistant, designed to provide natural and fluid spoken responses in {language_name}.
+                        Your responses should be:
+                        - **Concise and short**: Keep answers brief but meaningful.
+                        - **Conversational**: Sound natural, as if speaking to a human.
+                        - **Insightful**: Offer thoughtful and relevant responses.
+                        - **Expressive**: Adapt tone to match the context of the question.
+                        You will be asked general and reflective questions: Answer such questions politefully
+                        Always respond in a way that is clear, as the question is necessary, engaging, and easy to understand when spoken aloud. In short and specific on to point !
+                        """
 
         messages = [{"role": "system", "content": system_prompt},
                     {"role": "user", "content": question}]
@@ -295,7 +311,7 @@ with col1:
 with col2:
     st.subheader("Controls")
     api_key = st.text_input("Groq API Key", type="password")
-    st.link_button(label = "Get API Here", url ="https://console.groq.com/playground")
+    st.link_button(label="Get API Here", url="https://console.groq.com/playground")
     language_options = [f"{data['flag']} {name}" for name, data in languages.items()]
     selected_language = st.selectbox("Select Language", language_options, index=0)
     selected_language_name = selected_language.split(" ", 1)[1]
@@ -315,7 +331,7 @@ with col2:
             st.rerun()
 
     with col_stop:
-        if st.button(" 🛑 Stop Recording",
+        if st.button("⏹️ Stop",
                      type="primary" if st.session_state.recording_state == 'recording' else "secondary",
                      disabled=st.session_state.recording_state != 'recording'):
             st.session_state.recording_state = 'stopped'
