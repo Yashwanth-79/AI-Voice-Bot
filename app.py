@@ -301,14 +301,6 @@ with col2:
     selected_language_name = selected_language.split(" ", 1)[1]
     st.session_state.language = languages[selected_language_name]["code"]
 
-    # Use columns for Start/Stop buttons
-    
-    if st.button("🎤 Start Recording",disabled=st.session_state.recording):
-        st.session_state.recording = True
-        st.session_state.audio_data = None  # Clear previous data
-        st.rerun()
-        
-
 
     if st.session_state.recording:
         audio_bytes = ast.audio_recorder(
