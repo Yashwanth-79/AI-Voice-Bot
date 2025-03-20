@@ -174,6 +174,12 @@ if 'transcription_thread' not in st.session_state:
     st.session_state.transcription_thread = None
 if 'stop_recording' not in st.session_state:
     st.session_state.stop_recording = threading.Event()
+if 'api_key' not in st.session_state:
+    st.session_state.api_key = ""
+if 'current_audio_file' not in st.session_state:
+    st.session_state.current_audio_file = ""
+if 'auto_play_response' not in st.session_state:
+    st.session_state.auto_play_response = True
 
 # ------------------ LANGUAGE OPTIONS ------------------
 languages = {
@@ -306,7 +312,7 @@ def text_to_speech(text, language="en"):
 
 def start_recording(api_key):
     """Start recording and transcribing audio"""
-    if st.session_state.listening:
+    if st.session_state.listening or not api_key:
         return
     
     # Set listening state
@@ -440,7 +446,8 @@ def process_final_audio(audio_file, api_key):
             "user": transcription, 
             "assistant": response,
             "timestamp": timestamp,
-            "audio_response": audio_response
+            "audio_response": audio_response,
+            "auto_played": False  # Track whether this response has been auto-played
         })
         
         # Clean up audio file
@@ -469,14 +476,17 @@ with col1:
         st.markdown('<div class="conversation-container">', unsafe_allow_html=True)
         
         # Display the conversation history
-        for entry in st.session_state.conversation:
+        for i, entry in enumerate(st.session_state.conversation):
             time_str = entry.get("timestamp", "")
             st.markdown(f'<div class="user-message">{entry["user"]}<div class="message-timestamp">{time_str}</div></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="assistant-message">{entry["assistant"]}<div class="message-timestamp">{time_str}</div></div>', unsafe_allow_html=True)
             
-            # Play the audio response if available
+            # Play the audio response if available and auto-play is enabled
             if "audio_response" in entry and entry["audio_response"]:
-                st.audio(entry["audio_response"], format="audio/mp3")
+                st.audio(entry["audio_response"], format="audio/mp3", start_time=0 if st.session_state.auto_play_response and not entry.get("auto_played", True) else None)
+                # Mark this response as auto-played
+                if st.session_state.auto_play_response and not entry.get("auto_played", True):
+                    st.session_state.conversation[i]["auto_played"] = True
         
         # Display live transcription if listening
         if st.session_state.listening and st.session_state.live_transcription:
@@ -500,6 +510,9 @@ with col2:
     selected_language_name = selected_language.split(" ", 1)[1]
     st.session_state.language = languages[selected_language_name]["code"]
     
+    # Auto-play option
+    st.session_state.auto_play_response = st.checkbox("Auto-play responses", value=True)
+    
     # Status indicator
     if st.session_state.listening:
         st.markdown('<div class="listening-indicator">Listening...</div>', unsafe_allow_html=True)
@@ -512,8 +525,11 @@ with col2:
     col_start, col_stop = st.columns(2)
     
     with col_start:
-        if st.button("🎤 Start Talking", disabled=st.session_state.listening):
-            start_recording(api_key)
+        if st.button("🎤 Start Talking", disabled=st.session_state.listening or st.session_state.is_processing):
+            if api_key:
+                start_recording(api_key)
+            else:
+                st.error("Please enter a valid API key")
     
     with col_stop:
         if st.button("🛑 Stop", disabled=not st.session_state.listening):
@@ -539,6 +555,7 @@ with col2:
 if audio_bytes and not st.session_state.listening and not st.session_state.is_processing:
     # Set processing state
     st.session_state.is_processing = True
+    st.rerun()  # Update UI to show processing state
     
     # Save audio to file
     with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as tmp_file:
@@ -546,30 +563,30 @@ if audio_bytes and not st.session_state.listening and not st.session_state.is_pr
         audio_file = tmp_file.name
     
     # Process the audio
-    with st.spinner("Processing your message..."):
-        # Transcribe audio
-        transcription = transcribe_with_groq(audio_file, api_key, st.session_state.language)
+    # Transcribe audio
+    transcription = transcribe_with_groq(audio_file, api_key, st.session_state.language)
+    
+    if transcription:
+        # Get AI response
+        response = get_llama_response(transcription, api_key, st.session_state.language)
         
-        if transcription:
-            # Get AI response
-            response = get_llama_response(transcription, api_key, st.session_state.language)
-            
-            # Generate audio response
-            audio_response = text_to_speech(response, st.session_state.language)
-            
-            # Add to conversation
-            timestamp = datetime.now().strftime("%H:%M:%S")
-            st.session_state.conversation.append({
-                "user": transcription, 
-                "assistant": response,
-                "timestamp": timestamp,
-                "audio_response": audio_response
-            })
+        # Generate audio response
+        audio_response = text_to_speech(response, st.session_state.language)
         
-        # Clean up audio file
-        if os.path.exists(audio_file):
-            os.remove(audio_file)
+        # Add to conversation
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        st.session_state.conversation.append({
+            "user": transcription, 
+            "assistant": response,
+            "timestamp": timestamp,
+            "audio_response": audio_response,
+            "auto_played": False  # New responses haven't been auto-played yet
+        })
+    
+    # Clean up audio file
+    if os.path.exists(audio_file):
+        os.remove(audio_file)
     
     # Reset processing state
     st.session_state.is_processing = False
-    st.rerun()
+    st.rerun()  # Update UI with new conversation
