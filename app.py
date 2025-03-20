@@ -303,16 +303,12 @@ with col2:
 
     # Use columns for Start/Stop buttons
     
-    with st.button("🎤 Start Recording",disabled=st.session_state.recording):
+    if st.button("🎤 Start Recording",disabled=st.session_state.recording):
         st.session_state.recording = True
         st.session_state.audio_data = None  # Clear previous data
         st.rerun()
         
 
-    # with col_stop:
-    #     if st.button("🛑 Stop Recording", disabled=not st.session_state.recording):
-    #         st.session_state.recording = False
-    #         st.rerun()  # Don't rerun here; process audio first
 
     if st.session_state.recording:
         audio_bytes = ast.audio_recorder(
