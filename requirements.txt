@@ -1,0 +1,6 @@
+openai 
+SpeechRecognition 
+gtts 
+playsound 
+pyaudio 
+groq
