@@ -356,7 +356,7 @@ with col2:
 
     if st.session_state.recording_state == 'recording':
         audio_bytes = ast.audio_recorder(
-            text="Click -> Speak -> Press 'Stop'",
+            text="Click -> Speak -> Press `Stop` ",
             recording_color="#e53935",
             neutral_color="#2E5BFF",
             icon_size="2x",
