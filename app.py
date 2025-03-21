@@ -335,37 +335,17 @@ with col2:
     st.session_state.language = languages[selected_language_name]["code"]
 
     # Use columns for Start/Stop buttons
-    col_rec, col_stop = st.columns([1, 1])
-
-    with col_rec:
-        if st.button("🎙️ Start Recording",
-                     type="primary" if st.session_state.recording_state != 'recording' else "secondary",
-                     disabled=st.session_state.recording_state == 'recording'):
-            st.session_state.recording_state = 'recording'
-            st.session_state.audio_data = None  # Clear previous data
-            st.session_state.language_error = False  # Reset error state
-            st.session_state.error_message = "" # Clear error message
-            st.rerun()
-
-    with col_stop:
-        if st.button("⏹️ Stop",
-                     type="primary" if st.session_state.recording_state == 'recording' else "secondary",
-                     disabled=st.session_state.recording_state != 'recording'):
-            st.session_state.recording_state = 'stopped'
-            st.rerun()
-
-    if st.session_state.recording_state == 'recording':
-        audio_bytes = ast.audio_recorder(
-            text="Click -> Speak -> Press Stop",
-            recording_color="#e53935",
-            neutral_color="#2E5BFF",
-            icon_size="2x",
-            key="audio_recorder"
-        )
-        if audio_bytes and st.session_state.audio_data != audio_bytes:
-            st.session_state.audio_data = audio_bytes
-
-    if st.session_state.audio_data and st.session_state.recording_state == 'stopped':
+    # Single mic button for recording
+    audio_bytes = ast.audio_recorder(
+        text="Click the Mic and Speak",
+        recording_color="#e53935",
+        neutral_color="#2E5BFF",
+        icon_size="2x",
+        key="audio_recorder"
+    )
+    
+    if audio_bytes:
+        st.session_state.audio_data = audio_bytes
         with st.spinner("Processing your message..."):
             transcription, response, audio_response = process_audio(st.session_state.audio_data, api_key)
             if transcription and response and audio_response:
@@ -375,15 +355,12 @@ with col2:
                     "audio_response": audio_response
                 })
                 st.session_state.audio_to_autoplay = audio_response
-            st.session_state.audio_data = None  # Clear audio data after processing
-            st.session_state.recording_state = 'idle'  # Reset to idle after processing
+            st.session_state.audio_data = None  # Clear after processing
         st.rerun()
-
+    
     if st.button("🔄 Clear Conversation"):
         st.session_state.conversation = []
-        st.session_state.audio_data = None
         st.session_state.audio_to_autoplay = None
-        st.session_state.recording_state = 'idle'  # Reset recording state
         st.rerun()
 
 # Auto-play audio if available
