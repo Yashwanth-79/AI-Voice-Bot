@@ -10,7 +10,8 @@ import audio_recorder_streamlit as ast
 # ------------------ PAGE CONFIGURATION ------------------
 st.set_page_config(page_title="AI Voice Assistant", page_icon="🎙️", layout="wide")
 
-# ------------------ CUSTOM CSS ------------------ (No changes needed)
+
+# ------------------ CUSTOM CSS ------------------
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
@@ -172,9 +173,14 @@ if 'language' not in st.session_state:
     st.session_state.language = "en"
 if 'audio_data' not in st.session_state:
     st.session_state.audio_data = None
+if 'recording_state' not in st.session_state:  # Use a string to represent state
+    st.session_state.recording_state = 'idle'  # 'idle', 'recording', 'stopped'
 if 'audio_to_autoplay' not in st.session_state:
     st.session_state.audio_to_autoplay = None
-
+if 'language_error' not in st.session_state:
+    st.session_state.language_error = False
+if 'error_message' not in st.session_state:
+    st.session_state.error_message = ""
 
 # ------------------ LANGUAGE OPTIONS ------------------
 languages = {
@@ -295,7 +301,8 @@ st.sidebar.markdown(
     **Welcome to the AI Voice Assistant!**
 
     **How It Works:**
-     - **Click and Speak:** Click the microphone icon and start speaking. The recording will start and stop automatically.
+    - **Record Your Message:** Click **Start Recording** and speak into your microphone.
+    - **Stop Recording:** Press **Stop** when you’re finished.
     - **Processing:** Your voice will be transcribed using Groq's Whisper API, and an AI response will be generated.
     - **Language Selection:** Choose your preferred language from the dropdown.
     - **Clear Conversation:** Use the **Clear Conversation** button to reset the chat history.
@@ -327,39 +334,45 @@ with col2:
     selected_language_name = selected_language.split(" ", 1)[1]
     st.session_state.language = languages[selected_language_name]["code"]
 
-    # Use the audio_recorder component directly for click-to-speak
-    audio_bytes = ast.audio_recorder(
-        text="Click to Speak",  # Single prompt for both states
-        recording_color="#e53935",
-        neutral_color="#2E5BFF",
-        icon_size="2x",
-        key="audio_recorder"  # Keep the key!
-    )
-    # Check for *meaningful* audio data.  100 bytes is an arbitrary, small threshold.
-    if audio_bytes and len(audio_bytes) > 100 and st.session_state.audio_data != audio_bytes:
-        st.session_state.audio_data = audio_bytes
-        with st.spinner("Processing your message..."):
-            transcription, response, audio_response = process_audio(st.session_state.audio_data, api_key)
-            if transcription and response and audio_response:
-                st.session_state.conversation.append({
-                    "user": transcription,
-                    "assistant": response,
-                    "audio_response": audio_response
-                })
-                st.session_state.audio_to_autoplay = audio_response
-            st.session_state.audio_data = None  # Clear audio data after processing
-        st.rerun()
+    # Use columns for Start/Stop buttons
+    if st.button("🎙️ Record", type="primary"):
+        audio_bytes = ast.audio_recorder(
+            text="Recording... Speak now.",
+            recording_color="#e53935",
+            neutral_color="#2E5BFF",
+            icon_size="2x",
+            key="audio_recorder"
+        )
+    
+        if audio_bytes:
+            with st.spinner("Processing your message..."):
+                transcription, response, audio_response = process_audio(audio_bytes, api_key)
+                if transcription and response and audio_response:
+                    st.session_state.conversation.append({
+                        "user": transcription,
+                        "assistant": response,
+                        "audio_response": audio_response
+                    })
+                    st.session_state.audio_to_autoplay = audio_response
+            st.rerun()
+    
+    # Auto-play response audio if available
+    if st.session_state.audio_to_autoplay:
+        autoplay_audio(st.session_state.audio_to_autoplay)
+        st.session_state.audio_to_autoplay = None
+
 
     if st.button("🔄 Clear Conversation"):
         st.session_state.conversation = []
         st.session_state.audio_data = None
         st.session_state.audio_to_autoplay = None
+        st.session_state.recording_state = 'idle'  # Reset recording state
         st.rerun()
 
-# Auto-play audio if available.  This MUST be outside the processing block.
+# Auto-play audio if available
 if st.session_state.audio_to_autoplay:
     autoplay_audio(st.session_state.audio_to_autoplay)
-    st.session_state.audio_to_autoplay = None  # Crucial: Reset after playing
+    st.session_state.audio_to_autoplay = None
 
 # Footer
 st.markdown("<div class='footer'>© 2024 Home.LLC | <a href='https://www.home.llc/'>Visit our website</a></div>", unsafe_allow_html=True)
