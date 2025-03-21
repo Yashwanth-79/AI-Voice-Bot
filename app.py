@@ -207,6 +207,10 @@ if 'language_error' not in st.session_state:
     st.session_state.language_error = False
 if 'error_message' not in st.session_state:
     st.session_state.error_message = ""
+if 'last_processed_audio' not in st.session_state:
+    st.session_state.last_processed_audio = None
+if 'processing_done' not in st.session_state:
+    st.session_state.processing_done = False
 
 # ------------------ LANGUAGE OPTIONS ------------------
 languages = {
@@ -340,6 +344,11 @@ st.sidebar.markdown(
 # Main content area
 col1, col2 = st.columns([3, 1])
 
+# Play audio based on session state
+if st.session_state.audio_to_autoplay is not None:
+    autoplay_audio(st.session_state.audio_to_autoplay)
+    st.session_state.audio_to_autoplay = None
+
 with col1:
     st.subheader("Conversation")
     with st.container():
@@ -373,11 +382,14 @@ with col2:
             key="audio_recorder_direct"
         )
         
-        # Handle the audio when it's available
-        if audio_bytes and audio_bytes != st.session_state.audio_data:
-            st.session_state.audio_data = audio_bytes
+        # Check if we have new audio to process
+        if audio_bytes and audio_bytes != st.session_state.last_processed_audio:
+            st.session_state.processing_done = False
+            st.session_state.last_processed_audio = audio_bytes
+            
             with st.spinner("Processing your message..."):
                 transcription, response, audio_response = process_audio(audio_bytes, api_key)
+                
                 if transcription and response and audio_response:
                     st.session_state.conversation.append({
                         "user": transcription,
@@ -385,21 +397,25 @@ with col2:
                         "audio_response": audio_response
                     })
                     st.session_state.audio_to_autoplay = audio_response
-                    # Rerun to update the conversation and play audio
+                    st.session_state.processing_done = True
                     st.rerun()
     
     st.markdown('</div>', unsafe_allow_html=True)
+
+    # Play last response button (as backup if autoplay doesn't work)
+    if len(st.session_state.conversation) > 0:
+        if st.button("🔊 Play Last Response"):
+            last_response = st.session_state.conversation[-1]["audio_response"]
+            st.session_state.audio_to_autoplay = last_response
+            st.rerun()
     
     if st.button("🔄 Clear Conversation"):
         st.session_state.conversation = []
         st.session_state.audio_data = None
         st.session_state.audio_to_autoplay = None
+        st.session_state.last_processed_audio = None
+        st.session_state.processing_done = False
         st.rerun()
-
-# Auto-play audio if available
-if st.session_state.audio_to_autoplay:
-    autoplay_audio(st.session_state.audio_to_autoplay)
-    st.session_state.audio_to_autoplay = None
 
 # Footer
 st.markdown("<div class='footer'>© 2024 Home.LLC | <a href='https://www.home.llc/'>Visit our website</a></div>", unsafe_allow_html=True)
