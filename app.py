@@ -127,23 +127,6 @@ st.markdown("""
         border: 1px solid #2E5BFF;
     }
 
-    /* Record button pulse animation */
-    @keyframes pulse {
-        0% {
-            box-shadow: 0 0 0 0 rgba(46, 91, 255, 0.7);
-        }
-        70% {
-            box-shadow: 0 0 0 10px rgba(46, 91, 255, 0);
-        }
-        100% {
-            box-shadow: 0 0 0 0 rgba(46, 91, 255, 0);
-        }
-    }
-    
-    .record-active {
-        animation: pulse 1.5s infinite;
-        background-color: #e53935 !important;
-    }
 
     /* Custom Footer */
     .footer {
@@ -190,8 +173,8 @@ if 'language' not in st.session_state:
     st.session_state.language = "en"
 if 'audio_data' not in st.session_state:
     st.session_state.audio_data = None
-if 'is_recording' not in st.session_state:
-    st.session_state.is_recording = False
+if 'recording_state' not in st.session_state:  # Use a string to represent state
+    st.session_state.recording_state = 'idle'  # 'idle', 'recording', 'stopped'
 if 'audio_to_autoplay' not in st.session_state:
     st.session_state.audio_to_autoplay = None
 if 'language_error' not in st.session_state:
@@ -308,15 +291,8 @@ def process_audio(audio_bytes, api_key):
     finally:
         os.remove(audio_file)
 
-# Toggle recording state
-def toggle_recording():
-    st.session_state.is_recording = not st.session_state.is_recording
-    if not st.session_state.is_recording and st.session_state.audio_data:
-        # Process the recorded audio when stopping recording
-        return True
-    return False
-
 # ------------------ APP LAYOUT ------------------
+st.logo("https://s3-eu-west-1.amazonaws.com/tpd/logos/60d3a0bc65022800013b18b3/0x0.png")
 # Header with Logo
 st.markdown("<div class='logo-container'><img src='https://s3-eu-west-1.amazonaws.com/tpd/logos/60d3a0bc65022800013b18b3/0x0.png'><h1>AI Voice Assistant</h1></div>", unsafe_allow_html=True)
 st.sidebar.title("App Instructions")
@@ -325,8 +301,8 @@ st.sidebar.markdown(
     **Welcome to the AI Voice Assistant!**
 
     **How It Works:**
-    - **Record Your Message:** Click the **Record** button and speak into your microphone.
-    - **Stop Recording:** Click the same button again to stop recording.
+    - **Record Your Message:** Click **Start Recording** and speak into your microphone.
+    - **Stop Recording:** Press **Stop** when you’re finished.
     - **Processing:** Your voice will be transcribed using Groq's Whisper API, and an AI response will be generated.
     - **Language Selection:** Choose your preferred language from the dropdown.
     - **Clear Conversation:** Use the **Clear Conversation** button to reset the chat history.
@@ -351,61 +327,63 @@ with col1:
 
 with col2:
     st.subheader("Controls")
-    api_key = st.text_input("Groq API Key", type="password", value="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")
+    api_key = st.text_input("Groq API Key", type="password",value = "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")
     st.link_button(label="Get API Here", url="https://console.groq.com/playground")
     language_options = [f"{data['flag']} {name}" for name, data in languages.items()]
     selected_language = st.selectbox("Select Language", language_options, index=0)
     selected_language_name = selected_language.split(" ", 1)[1]
     st.session_state.language = languages[selected_language_name]["code"]
 
-    # Single toggle button for recording
-    record_button_text = "🎙️ Stop Recording" if st.session_state.is_recording else "🎙️ Record"
-    record_button_type = "primary"
-    record_button_class = "record-active" if st.session_state.is_recording else ""
-    
-    if st.button(record_button_text, type=record_button_type, key="record_button"):
-        if toggle_recording() and st.session_state.audio_data:
-            # Process recorded audio when stopping
-            with st.spinner("Processing your message..."):
-                transcription, response, audio_response = process_audio(st.session_state.audio_data, api_key)
-                if transcription and response and audio_response:
-                    st.session_state.conversation.append({
-                        "user": transcription,
-                        "assistant": response,
-                        "audio_response": audio_response
-                    })
-                    st.session_state.audio_to_autoplay = audio_response
-                st.session_state.audio_data = None  # Clear audio data after processing
+    # Use columns for Start/Stop buttons
+    col_rec, col_stop = st.columns([1, 1])
+
+    with col_rec:
+        if st.button("🎙️ Start Recording",
+                     type="primary" if st.session_state.recording_state != 'recording' else "secondary",
+                     disabled=st.session_state.recording_state == 'recording'):
+            st.session_state.recording_state = 'recording'
+            st.session_state.audio_data = None  # Clear previous data
+            st.session_state.language_error = False  # Reset error state
+            st.session_state.error_message = "" # Clear error message
             st.rerun()
 
-    # Add custom CSS for the active recording button
-    if st.session_state.is_recording:
-        st.markdown("""
-        <style>
-        [data-testid="stButton"] button {
-            animation: pulse 1.5s infinite;
-            background-color: #e53935 !important;
-        }
-        </style>
-        """, unsafe_allow_html=True)
+    with col_stop:
+        if st.button("⏹️ Stop",
+                     type="primary" if st.session_state.recording_state == 'recording' else "secondary",
+                     disabled=st.session_state.recording_state != 'recording'):
+            st.session_state.recording_state = 'stopped'
+            st.rerun()
 
-    # Show the recorder widget when recording is active
-    if st.session_state.is_recording:
+    if st.session_state.recording_state == 'recording':
         audio_bytes = ast.audio_recorder(
-            text="Recording... Click 'Stop Recording' when done",
+            text="Click -> Speak -> Press Stop",
             recording_color="#e53935",
             neutral_color="#2E5BFF",
             icon_size="2x",
             key="audio_recorder"
         )
-        if audio_bytes:
+        if audio_bytes and st.session_state.audio_data != audio_bytes:
             st.session_state.audio_data = audio_bytes
+
+    if st.session_state.audio_data and st.session_state.recording_state == 'stopped':
+        with st.spinner("Processing your message..."):
+            transcription, response, audio_response = process_audio(st.session_state.audio_data, api_key)
+            if transcription and response and audio_response:
+                st.session_state.conversation.append({
+                    "user": transcription,
+                    "assistant": response,
+                    "audio_response": audio_response
+                })
+                st.session_state.audio_to_autoplay = audio_response
+            st.session_state.audio_data = None  # Clear audio data after processing
+            st.session_state.recording_state = 'idle'  # Reset to idle after processing
+        st.rerun()
 
     if st.button("🔄 Clear Conversation"):
         st.session_state.conversation = []
         st.session_state.audio_data = None
         st.session_state.audio_to_autoplay = None
-        st.session_state.is_recording = False
+        st.session_state.recording_state = 'idle'  # Reset recording state
         st.rerun()
 
 # Auto-play audio if available
